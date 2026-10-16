@@ -38,14 +38,14 @@ paths:
  for(let i=0;i<60;i++){try{const response=await fetch(`http://127.0.0.1:${api}/v3/paths/list`,{signal:AbortSignal.timeout(500)});if(response.ok){ready=true;break}}catch{}await delay(100)}
  assert.ok(ready,'MediaMTX API must start: '+log.slice(-1000))
  const url=`rtmp://127.0.0.1:${rtmp}/cam`
- start('ffmpeg',['-hide_banner','-loglevel','error','-re','-f','lavfi','-i','testsrc2=size=320x180:rate=15','-t','20','-c:v','libx264','-preset','ultrafast','-tune','zerolatency','-pix_fmt','yuv420p','-f','flv',url])
+ start('ffmpeg',['-hide_banner','-loglevel','error','-re','-f','lavfi','-i','testsrc2=size=320x180:rate=15','-t','20','-c:v','libx264','-preset','ultrafast','-tune','zerolatency','-g','15','-keyint_min','15','-sc_threshold','0','-pix_fmt','yuv420p','-f','flv',url])
  let status
  for(let i=0;i<100;i++){try{const response=await fetch(`http://127.0.0.1:${api}/v3/paths/get/cam`,{signal:AbortSignal.timeout(500)});status=await response.json();if(status.ready)break}catch{}await delay(100)}
  assert.ok(status?.ready,'RTMP test publisher must be ready: '+log.slice(-1500))
  assert.ok(status.tracks.some(track=>/h264/i.test(track)),'Expected H264 camera track')
- const decoder=start('ffmpeg',['-hide_banner','-loglevel','error','-i',url,'-frames:v','2','-pix_fmt','rgba','-f','rawvideo','pipe:1'])
+ const decoder=start('ffmpeg',['-hide_banner','-loglevel','error','-analyzeduration','1000000','-probesize','1000000','-i',url,'-frames:v','2','-pix_fmt','rgba','-f','rawvideo','pipe:1'])
  const chunks=[];decoder.stdout.on('data',chunk=>chunks.push(chunk))
- await Promise.race([new Promise((resolve,reject)=>{decoder.on('error',reject);decoder.on('exit',code=>code===0?resolve():reject(Error('Decoder failed: '+log.slice(-1000))))}),delay(12000).then(()=>{throw Error('RTMP decode timed out')})])
+ await Promise.race([new Promise((resolve,reject)=>{decoder.on('error',reject);decoder.on('exit',code=>code===0?resolve():reject(Error('Decoder failed: '+log.slice(-1000))))}),delay(12000).then(()=>{throw Error('RTMP decode timed out: '+log.slice(-1500))})])
  const bytes=Buffer.concat(chunks);assert.equal(bytes.length,320*180*4*2);assert.ok(new Set(bytes.subarray(0,320*180*4)).size>20,'Test frame must contain image content')
  console.log('PASS ARM MediaMTX: RTMP publish, camera readiness, H264 track and two decoded colour-pattern frames')
 }finally{

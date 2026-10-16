@@ -182,8 +182,8 @@ async fn capture(view:&Webview)->Result<Vec<u8>,String> {
 #[cfg(target_os="macos")]
 async fn capture(view:&Webview)->Result<Vec<u8>,String>{
  use objc2::{MainThreadMarker,AllocAnyThread};
- use objc2_app_kit::{NSImage,NSBitmapImageRep,NSBitmapImageFileType};
- use objc2_foundation::{NSError,NSDictionary};
+ use objc2_app_kit::{NSImage,NSBitmapImageRep,NSBitmapImageFileType,NSImageCompressionFactor};
+ use objc2_foundation::{NSError,NSDictionary,NSNumber,NSString};
  use objc2_web_kit::{WKWebView,WKSnapshotConfiguration};
  let (sender,receiver)=tokio::sync::oneshot::channel();
  view.with_webview(move|platform|{unsafe{
@@ -196,7 +196,9 @@ async fn capture(view:&Webview)->Result<Vec<u8>,String>{
     let image=image.as_ref().ok_or("Website snapshot unavailable")?;
     let tiff=image.TIFFRepresentation().ok_or("Website image unavailable")?;
     let bitmap=NSBitmapImageRep::initWithData(NSBitmapImageRep::alloc(),&tiff).ok_or("Website bitmap unavailable")?;
-    let bytes=bitmap.representationUsingType_properties(NSBitmapImageFileType::JPEG,&NSDictionary::new()).ok_or("Website JPEG unavailable")?;
+    let quality=NSNumber::new_f64(0.98);
+    let properties=NSDictionary::<NSString,objc2::runtime::AnyObject>::from_slices(&[NSImageCompressionFactor],&[&*quality]);
+    let bytes=bitmap.representationUsingType_properties(NSBitmapImageFileType::JPEG,&properties).ok_or("Website JPEG unavailable")?;
     Ok(bytes.to_vec())
    })();if let Some(sender)=sender.lock().unwrap().take(){let _=sender.send(result);}
   });

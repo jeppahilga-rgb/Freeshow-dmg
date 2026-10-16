@@ -50,10 +50,6 @@ jobs:
           node scripts/stage-macos-mediamtx.mjs
           node scripts/stage-macos-core.mjs
           npx tauri icon public/icon.png --output src-tauri/icons
-      - name: Test embedded RTMP receiver with generated video
-        run: |
-          command -v ffmpeg >/dev/null || brew install ffmpeg
-          node scripts/macos-rtmp-smoke.mjs
       - name: Smoke test bundled ARM backend
         run: node scripts/macos-runtime-smoke.mjs
       - name: Inventory platform work
@@ -67,6 +63,10 @@ jobs:
           cargo check --locked --manifest-path src-tauri/Cargo.toml --target aarch64-apple-darwin 2>&1 | tee mac-arm-native-check.log
       - name: Native core regression tests
         run: cargo test --locked --manifest-path src-tauri/Cargo.toml --target aarch64-apple-darwin
+      - name: Test embedded RTMP receiver with generated video
+        run: |
+          command -v ffmpeg >/dev/null || brew install ffmpeg
+          node scripts/macos-rtmp-smoke.mjs
       - name: Build Apple Silicon app and DMG
         run: npx tauri build --target aarch64-apple-darwin --config src-tauri/tauri.macos.conf.json
       - name: Verify architecture, signature and DMG

@@ -78,7 +78,7 @@ mod tests {
   let input=MidiInput::new("FreeShow CI input").unwrap();
   let _listener=input.create_virtual(&name,move|_,bytes,_|{let _=sender.try_send(bytes.to_vec());},()).unwrap();
   let output=MidiOutput::new("FreeShow CI output").unwrap();
-  let port=output.ports().into_iter().find(|port|output.port_name(port).is_ok_and(|label|label==name)).expect("CoreMIDI virtual endpoint");
+  let port=output.ports().into_iter().find(|port|output.port_name(port).is_ok_and(|label|label.contains(&name))).expect("CoreMIDI virtual endpoint");
   let mut connection=output.connect(&port,"FreeShow CI sender").unwrap();
   let packed=crate::midi_protocol::message("noteon",&serde_json::json!({"channel":16,"note":60,"velocity":99})).unwrap();
   connection.send(&packed.to_le_bytes()[..3]).unwrap();
