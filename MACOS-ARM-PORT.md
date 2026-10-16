@@ -3,11 +3,13 @@
 Target repository: https://github.com/jeppahilga-rgb/Freeshow-dmg
 Target architecture: aarch64-apple-darwin, including M3 Macs with 16 GB RAM.
 
-Status: source preparation only. No Mac compilation, DMG, signing, notarization, repository push or cloud run has been completed. The public repository was empty when inspected on 16 October 2026. GitHub credentials were not available in the local Git credential manager.
+Status: Mac core preview under development. Source was uploaded to the repository on 16 October 2026 and the first Apple Silicon cloud diagnostic compiled the JavaScript and identified Windows-only Rust implementations. A DMG is not verified until the preview workflow completes its build, architecture, signature and disk-image checks. It is ad-hoc signed, not Developer ID notarized.
+
+The first preview targets editing, local show/library storage, Scripture, fonts, ordinary media and Window outputs. Native screen/window capture, virtual camera, capture-based NDI/OMT/Blackmagic/RTMP/WHIP outputs, native MIDI, RTMP camera receiver, shared website frame capture, native PDF printing and secure external-account storage are explicitly unavailable. These are not reported as working ports. Camera/file playback and physical output displays still require church-Mac testing.
 
 ## Prepared locally
 
-- Mac ARM diagnostic workflow, manually dispatched on an ARM macOS runner. It builds the JavaScript, attempts a native compile, and saves diagnostics. Known Windows-only modules still prevent a successful native Mac build. The workflow deliberately creates no release or misleading installer artifact.
+- Manual Mac ARM workflow with frontend tests, native compile/tests, app/DMG packaging, architecture/signature/image checks and a downloadable preview artifact only when all steps succeed. It publishes no release automatically.
 - windows-capture is now a Windows-target dependency rather than an unconditional dependency.
 - Backend resource lookup handles the Mac app Resources directory and selects `node` instead of `node.exe`. Unix backend startup uses a separate process group with cleanup; Windows retains its job object.
 - Desktop tool lookup includes Homebrew locations on macOS. File/URL opening uses the platform opener, and memory reporting parses the system page size instead of assuming the Windows layout. Windows shell fullscreen policy is conditionally compiled.

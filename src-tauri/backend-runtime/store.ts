@@ -7,6 +7,7 @@ const boot=JSON.parse(fs.readFileSync(process.env.FREESHOW_BACKEND_CONFIG!,'utf8
 const nativeRoot=boot.libraryRoot
 const names:Record<string,string>={SETTINGS:'settings_tauri',SYNCED_SETTINGS:'settings_synced',DRIVE_API_KEY:'drive_api_key'}
 function protectedBytes(bytes:Buffer,decrypt=false){
+ if(process.platform!=='win32')throw Error('Secure credential storage is not available in this Mac core preview. Account connections cannot be saved.');
  const script=`Add-Type -AssemblyName System.Security; $bytes=[Convert]::FromBase64String([Console]::In.ReadToEnd()); $result=[Security.Cryptography.ProtectedData]::${decrypt?'Unprotect':'Protect'}($bytes,$null,[Security.Cryptography.DataProtectionScope]::CurrentUser); [Console]::Write([Convert]::ToBase64String($result))`
  const output=spawnSync('powershell.exe',['-NoProfile','-NonInteractive','-Command',script],{input:bytes.toString('base64'),encoding:'utf8',windowsHide:true,timeout:15000})
  if(output.status!==0)throw Error('Windows could not protect the credential store');return Buffer.from(output.stdout.trim(),'base64')

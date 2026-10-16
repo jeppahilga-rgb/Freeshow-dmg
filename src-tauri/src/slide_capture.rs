@@ -20,7 +20,7 @@ pub async fn capture_slide(app:tauri::AppHandle,caller:tauri::Webview,state:Stat
  if let Some(view)=app.get_webview(preview.window.label()){crate::websites::set_audio(&view,true).await?;}
  // Outputs request their normal shared stores; retain this snapshot when OUTPUTS is broadcast.
  for _ in 0..8{tokio::time::sleep(Duration::from_millis(500)).await;preview.window.emit_to(preview.window.label(),"freeshow-ipc",json!({"channel":"OUTPUT","msg":{"channel":"OUTPUTS","data":output}})).map_err(|e|e.to_string())?;}
- let handle=preview.window.hwnd().map_err(|e|e.to_string())?.0 as usize;
+ let handle=crate::native_capture::window_handle(&preview.window)?;
  let bytes=tauri::async_runtime::spawn_blocking(move||crate::native_capture::window_jpeg(handle)).await.map_err(|e|e.to_string())??;
  Ok(json!({"base64":format!("data:image/jpeg;base64,{}",base64::engine::general_purpose::STANDARD.encode(bytes))}))
 }

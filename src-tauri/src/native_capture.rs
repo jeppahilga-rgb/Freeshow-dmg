@@ -184,6 +184,7 @@ pub fn window_jpeg(handle:usize)->Result<Vec<u8>,String>{
     let latest=Arc::new(Mutex::new(Latest::default()));let control=begin(Window::from_raw_hwnd(handle as *mut _),Flags{latest:latest.clone(),thumbnail:false})?;
     let started=Instant::now();let bytes=loop{let value=latest.lock().map_err(|_|"Capture state unavailable")?;if !value.jpeg.is_empty(){break value.jpeg.clone()}if value.closed||started.elapsed()>Duration::from_secs(5){break Vec::new()}drop(value);std::thread::sleep(Duration::from_millis(30));};let _=control.stop();if bytes.is_empty(){Err("Slide image was unavailable".into())}else{Ok(bytes)}
 }
+pub fn window_handle(window:&AppWindow)->Result<usize,String>{Ok(window.hwnd().map_err(|e|e.to_string())?.0 as usize)}
 #[tauri::command]
 pub fn native_sources(window: AppWindow) -> Result<Vec<Source>, String> {
     if window.label() != "main" {

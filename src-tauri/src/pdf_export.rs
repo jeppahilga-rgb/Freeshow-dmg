@@ -23,9 +23,12 @@ pub async fn pdf_export(app:tauri::AppHandle,caller:tauri::Webview,library:State
  if let Some(session)=state.sessions.lock().unwrap().get_mut(&label){session.printing=false;if let Ok(file)=&result{session.files.push(file.clone());}}
  match result{Ok(file)=>Ok(json!({"path":file})),Err(error)=>{state.remove(&label);let _=caller.window().close();app.emit_to("main","freeshow-ipc",json!({"channel":"MAIN","msg":{"channel":"ALERT","data":format!("PDF export failed: {error}")}})).map_err(|e|e.to_string())?;Err(error)}}
 }
+#[cfg(windows)]
 async fn print(view:&tauri::Webview,path:&std::path::Path,media:bool)->Result<(),String>{
  use windows::core::PCWSTR;use windows_core::Interface;use webview2_com::{PrintToPdfCompletedHandler,Microsoft::Web::WebView2::Win32::{ICoreWebView2_7,ICoreWebView2Environment6}};
  let (sender,receiver)=tokio::sync::oneshot::channel();let path=path.as_os_str().to_string_lossy().encode_utf16().chain(Some(0)).collect::<Vec<_>>();
  view.with_webview(move|platform|{let result=(||->windows::core::Result<()>{let environment:ICoreWebView2Environment6=platform.environment().cast()?;let settings=unsafe{environment.CreatePrintSettings()}?;unsafe{settings.SetShouldPrintBackgrounds(true)?;settings.SetShouldPrintHeaderAndFooter(false)?;settings.SetMarginTop(0.0)?;settings.SetMarginBottom(0.0)?;settings.SetMarginLeft(0.0)?;settings.SetMarginRight(0.0)?;settings.SetPageWidth(if media{11.6929133858}else{8.2677165354})?;settings.SetPageHeight(if media{6.5772440945}else{11.6929133858})?;let core:ICoreWebView2_7=platform.controller().CoreWebView2()?.cast()?;let callback=PrintToPdfCompletedHandler::create(Box::new(move|result,success|{let answer=result.map_err(|e|e.to_string()).and_then(|_|if success{Ok(())}else{Err("WebView2 could not print the PDF".into())});let _=sender.send(answer);Ok(())}));core.PrintToPdf(PCWSTR(path.as_ptr()),&settings,&callback)?;}Ok(())})();if let Err(error)=result{eprintln!("PDF print initialization: {error}");}}).map_err(|e|e.to_string())?;
  tokio::time::timeout(Duration::from_secs(90),receiver).await.map_err(|_|"PDF printing timed out")?.map_err(|_|"PDF printer was unavailable")?
 }
+#[cfg(not(windows))]
+async fn print(_view:&tauri::Webview,_path:&std::path::Path,_media:bool)->Result<(),String>{Err("Native PDF printing is not available in this Mac core preview.".into())}

@@ -1,6 +1,6 @@
-name: Mac ARM port diagnostics
+name: Mac ARM core preview build
 
-# Manual only: this is a porting diagnostic, not a release pipeline.
+# Manual preview build. No automatic release publication.
 on:
   workflow_dispatch:
 
@@ -18,6 +18,8 @@ jobs:
     env:
       CARGO_BUILD_JOBS: 2
       CARGO_INCREMENTAL: 0
+      FREESHOW_MAC_CORE: '1'
+      VITE_MAC_CORE: 'true'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -32,8 +34,19 @@ jobs:
           rustup default stable
       - name: Install JavaScript dependencies without native install scripts
         run: npm ci --ignore-scripts --no-audit --no-fund
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+      - name: Frontend regression tests
+        run: npm run test:bridge
       - name: Build frontend and backend JavaScript
         run: npm run build:frontend
+      - name: Stage ARM runtime and app icon
+        run: |
+          node scripts/stage-macos-core.mjs
+          npx tauri icon public/icon.png --output src-tauri/icons
+      - name: Smoke test bundled ARM backend
+        run: node scripts/macos-runtime-smoke.mjs
       - name: Inventory platform work
         run: node scripts/audit-macos-readiness.mjs
       - name: Check native Apple Silicon compilation
@@ -41,6 +54,29 @@ jobs:
         run: |
           set -o pipefail
           cargo check --locked --manifest-path src-tauri/Cargo.toml --target aarch64-apple-darwin 2>&1 | tee mac-arm-native-check.log
+      - name: Native core regression tests
+        run: cargo test --locked --manifest-path src-tauri/Cargo.toml --target aarch64-apple-darwin
+      - name: Build Apple Silicon app and DMG
+        run: npx tauri build --target aarch64-apple-darwin --config src-tauri/tauri.macos.conf.json
+      - name: Verify architecture, signature and DMG
+        shell: bash
+        run: |
+          APP='src-tauri/target/aarch64-apple-darwin/release/bundle/macos/FreeShow+.app'
+          lipo -verify_arch arm64 "$APP/Contents/MacOS/freeshow-tauri"
+          lipo -verify_arch arm64 "$APP/Contents/Resources/runtime/node"
+          codesign --verify --deep --strict "$APP"
+          hdiutil verify src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
+          shasum -a 256 src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg > mac-dmg-sha256.txt
+      - name: Upload preview installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: FreeShow-Plus-Mac-ARM-Core-Preview
+          path: |
+            src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
+            mac-dmg-sha256.txt
+            MACOS-ARM-PORT.md
+          if-no-files-found: error
+          retention-days: 14
       - name: Preserve diagnostics even when compilation fails
         if: always()
         uses: actions/upload-artifact@v4

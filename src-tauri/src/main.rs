@@ -3,8 +3,10 @@
 use serde_json::{json, Map, Value};
 use std::{fs, path::PathBuf, sync::{Arc, Mutex}};
 use tauri::{Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
-mod native_capture;
-mod virtual_camera;
+#[cfg(windows)] mod native_capture;
+#[cfg(not(windows))] #[path="mac/native_capture.rs"] mod native_capture;
+#[cfg(windows)] mod virtual_camera;
+#[cfg(not(windows))] #[path="mac/virtual_camera.rs"] mod virtual_camera;
 mod media_files;
 mod library_services;
 mod spotify;
@@ -14,7 +16,8 @@ mod powerpoint;
 mod file_drop;
 mod output_geometry;
 mod output_safety;
-mod output_engines;
+#[cfg(windows)] mod output_engines;
+#[cfg(not(windows))] #[path="mac/output_engines.rs"] mod output_engines;
 mod slide_capture;
 mod pdf_export;
 mod screen_identify;
@@ -33,11 +36,13 @@ async fn exit_fullscreen(caller: tauri::Webview) -> Result<(), String> {
 }
 mod local_servers;
 mod phone_camera;
-mod rtmp_input;
+#[cfg(windows)] mod rtmp_input;
+#[cfg(not(windows))] #[path="mac/rtmp_input.rs"] mod rtmp_input;
 mod desktop_services;
 mod platform;
 mod spelling;
-mod midi;
+#[cfg(windows)] mod midi;
+#[cfg(not(windows))] #[path="mac/midi.rs"] mod midi;
 mod backend_runtime;
 mod remote;
 mod websites;
@@ -692,7 +697,7 @@ async fn output_message(
         }
         "CAPTURE"=>{let id=data["id"].as_str().ok_or("Missing output ID")?;if let Some(output)=app.state::<output_engines::OutputEngines>().output(id){if app.get_window(&output_label(id)).is_some()&&!app.state::<output_engines::OutputEngines>().is_capturing(id){output_engines::configure(&app,&output,true).await?;}}return Ok(())},
         "IDENTIFY_SCREENS"=>return screen_identify::identify(&app),
-        "REQUEST_PREVIEW"=>{use base64::Engine;let id=data["id"].as_str().ok_or("Missing preview output ID")?;let preview=data["previewId"].as_str().unwrap_or(id).to_string();let target=app.get_window(&output_label(id)).ok_or("Output is not enabled")?;let handle=target.hwnd().map_err(|e|e.to_string())?.0 as usize;let bytes=tauri::async_runtime::spawn_blocking(move||{let bytes=native_capture::window_jpeg(handle)?;let image=image::load_from_memory(&bytes).map_err(|e|e.to_string())?.thumbnail(640,360).to_rgba8();Ok::<_,String>((image.width(),image.height(),image.into_raw()))}).await.map_err(|e|e.to_string())??;window.emit_to("main","freeshow-ipc",json!({"channel":"OUTPUT","msg":{"channel":"BUFFER","data":{"id":preview,"time":std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as u64,"size":{"width":bytes.0,"height":bytes.1},"buffer":{"__fsBytes":base64::engine::general_purpose::STANDARD.encode(bytes.2)}}}})).map_err(|e|e.to_string())?;return Ok(())},
+        "REQUEST_PREVIEW"=>{use base64::Engine;let id=data["id"].as_str().ok_or("Missing preview output ID")?;let preview=data["previewId"].as_str().unwrap_or(id).to_string();let target=app.get_window(&output_label(id)).ok_or("Output is not enabled")?;let handle=native_capture::window_handle(&target)?;let bytes=tauri::async_runtime::spawn_blocking(move||{let bytes=native_capture::window_jpeg(handle)?;let image=image::load_from_memory(&bytes).map_err(|e|e.to_string())?.thumbnail(640,360).to_rgba8();Ok::<_,String>((image.width(),image.height(),image.into_raw()))}).await.map_err(|e|e.to_string())??;window.emit_to("main","freeshow-ipc",json!({"channel":"OUTPUT","msg":{"channel":"BUFFER","data":{"id":preview,"time":std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as u64,"size":{"width":bytes.0,"height":bytes.1},"buffer":{"__fsBytes":base64::engine::general_purpose::STANDARD.encode(bytes.2)}}}})).map_err(|e|e.to_string())?;return Ok(())},
         _ => {}
     }
     for (label, w) in app.windows() {

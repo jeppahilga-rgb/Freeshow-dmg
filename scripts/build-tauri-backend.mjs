@@ -31,7 +31,12 @@ await fs.writeFile(path.join(directory,'store-metadata.ts'),'import {defaultSett
 const shimMap=new Map(['data/store','IPC/main','IPC/responsesMain','data/thumbnails','index','capture/CaptureHelper','output/OutputHelper'].map((name,i)=>[path.resolve('src/electron',name),path.join(directory,['store.ts','ipc.ts','services.ts','services.ts','index.ts','capture.ts','capture.ts'][i])]))
 shimMap.set(path.resolve('src/electron/capture/StreamReceiverHost'),path.join(directory,'media-transport.ts'))
 shimMap.set(path.resolve('src/electron/output/helpers/OutputValues'),path.join(directory,'output-values.ts'))
+const macOptional=['slideshow','@discordjs/opus','libltc-wrapper','jazz-midi','sherpa-onnx-node','grandiose','openmediatransport','macadam','osr-capture']
 const plugin={name:'tauri-backend-host',setup(b){
+ if(process.env.FREESHOW_MAC_CORE==='1'){
+  b.onResolve({filter:/.*/},args=>macOptional.includes(args.path)?{path:args.path,namespace:'mac-core-unavailable'}:undefined)
+  b.onLoad({filter:/.*/,namespace:'mac-core-unavailable'},args=>({contents:`const unavailable = new Proxy(function(){throw Error(${JSON.stringify(args.path+' is not available in this Mac core preview.')})},{get(target,key){if(key==='__esModule')return false;if(key==='then')return undefined;return unavailable;}});module.exports=unavailable;`,loader:'js'}))
+ }
  b.onResolve({filter:/.*/},args=>{if(args.path==='better-sqlite3')return {path:path.join(directory,'sqlite.ts')};if(args.path==='electron')return {path:path.join(directory,'electron.ts')};if(args.path.startsWith('.')||path.isAbsolute(args.path)){let candidate=path.resolve(args.resolveDir,args.path).replace(/\.ts$/,'');if(candidate===path.resolve('src/electron'))candidate=path.join(candidate,'index');if(shimMap.has(candidate))return {path:shimMap.get(candidate)}}})
  b.onLoad({filter:/[\\/]data[\\/]import\.ts$/},async args=>{
   let contents=(await fs.readFile(args.path,'utf8')).replace('join(__dirname, "..", "..", "..", "public", "proto", "presentation.proto")','join(__dirname, "proto", "presentation.proto")')

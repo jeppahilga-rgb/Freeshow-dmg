@@ -34,3 +34,4 @@ test-results/
 /src-tauri/mediamtx/download.zip
 /src-tauri/backend-runtime/build/
 /src-tauri/backend-runtime/sdk/
+/src-tauri/mac-runtime/

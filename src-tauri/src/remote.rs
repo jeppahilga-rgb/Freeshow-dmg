@@ -29,11 +29,7 @@ pub fn open_url(caller: Webview, url: String) -> Result<(), String> {
     if !matches!(parsed.scheme(), "http" | "https") && url != "spotify:" {
         return Err("Only web URLs are supported".into());
     }
-    std::process::Command::new("rundll32.exe")
-        .arg("url.dll,FileProtocolHandler")
-        .arg(parsed.as_str())
-        .spawn()
-        .map_err(|e| e.to_string())?;
+    crate::platform::open_target(parsed.as_str(),true)?;
     Ok(())
 }
 fn trusted(caller: &Webview) -> Result<(), String> {
