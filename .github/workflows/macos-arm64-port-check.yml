@@ -147,7 +147,7 @@ jobs:
           /usr/bin/plutil -lint src-tauri/Entitlements.mac.plist
           codesign --force --sign - --options runtime --entitlements src-tauri/Entitlements.mac.plist 'stage/FreeShow+.app'
           codesign --verify --deep --strict 'stage/FreeShow+.app'
-          codesign -d --entitlements - 'stage/FreeShow+.app' > applied-entitlements.plist
+          codesign -d --entitlements - --xml 'stage/FreeShow+.app' > applied-entitlements.plist
           python3 - <<'PY'
           import plistlib
           values=plistlib.load(open('applied-entitlements.plist','rb'))
@@ -157,6 +157,10 @@ jobs:
           lipo 'stage/FreeShow+.app/Contents/MacOS/freeshow-tauri' -verify_arch arm64
           lipo 'stage/FreeShow+.app/Contents/Resources/runtime/node' -verify_arch arm64
           'stage/FreeShow+.app/Contents/Resources/runtime/freeshow-native' selftest
+          RUNTIME="$PWD/stage/FreeShow+.app/Contents/Resources/runtime"
+          FREESHOW_SMOKE_RUNTIME="$RUNTIME" node scripts/macos-runtime-smoke.mjs
+          (cd "$RUNTIME" && ./node --input-type=module -e "for(const name of ['grandiose','openmediatransport','macadam','libltc-wrapper','@discordjs/opus','jazz-midi','sherpa-onnx-node','slideshow']){await import(name);console.log('PASS final app module:',name)}")
+          codesign --verify --deep --strict 'stage/FreeShow+.app'
           hdiutil create -volname 'FreeShow+' -srcfolder stage -format UDZO 'deliver/FreeShow-Plus-1.6.7-beta.1-Mac-ARM-Native-Preview.dmg'
           hdiutil verify deliver/*.dmg
           shasum -a 256 deliver/*.dmg > deliver/mac-dmg-sha256.txt

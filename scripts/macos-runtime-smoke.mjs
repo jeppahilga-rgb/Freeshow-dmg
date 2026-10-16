@@ -7,7 +7,7 @@ import assert from 'node:assert/strict'
 const root=await fs.mkdtemp(path.join(os.tmpdir(),'freeshow-mac-core-'))
 await fs.mkdir(path.join(root,'app'));await fs.mkdir(path.join(root,'Shows'))
 const boot=path.join(root,'boot.json');await fs.writeFile(boot,JSON.stringify({libraryRoot:root,appData:path.join(root,'app'),hasConfig:false,paths:{userData:path.join(root,'app'),temp:root,documents:root,music:root,videos:root,pictures:root}}))
-const runtime=path.resolve('src-tauri/mac-runtime')
+const runtime=path.resolve(process.env.FREESHOW_SMOKE_RUNTIME||'src-tauri/mac-runtime')
 const child=spawn(path.join(runtime,'node'),[path.join(runtime,'backend.cjs')],{cwd:runtime,env:{...process.env,FREESHOW_BACKEND_CONFIG:boot},stdio:['pipe','pipe','pipe']})
 const pending=new Map();let resolveReady,rejectReady;const ready=new Promise((resolve,reject)=>{resolveReady=resolve;rejectReady=reject});let stderr=''
 child.stderr.on('data',b=>stderr+=b.toString());child.on('error',rejectReady);child.on('exit',code=>{if(code!==null)rejectReady(Error('Backend exited '+code+': '+stderr.slice(-2000)))})
