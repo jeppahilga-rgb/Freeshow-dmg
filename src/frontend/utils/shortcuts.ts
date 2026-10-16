@@ -1,0 +1,569 @@
+import { get } from "svelte/store"
+import { OUTPUT } from "../../types/Channels"
+import { Main } from "../../types/IPC/Main"
+import type { ShowType } from "../../types/Show"
+import type { DrawerTabIds, TopViews } from "../../types/Tabs"
+import { clearAudio } from "../audio/audioFading"
+import { AudioPlayer } from "../audio/audioPlayer"
+import { menuClick } from "../components/context/menuClick"
+import { createScriptureShow } from "../components/drawer/bible/scripture"
+import { addItem } from "../components/edit/scripts/itemHelpers"
+import { keysToID, sortByName } from "../components/helpers/array"
+import { copy, cut, deleteAction, duplicate, paste, selectAll } from "../components/helpers/clipboard"
+import { history, redo, undo } from "../components/helpers/history"
+import { getExtension, getMedia, getMediaLayerType, getMediaStyle, getMediaType } from "../components/helpers/media"
+import { getFirstActiveOutput, refreshOut, setOutput, startFolderTimer, toggleOutputs } from "../components/helpers/output"
+import { OutputHelper } from "../components/helpers/OutputHelper"
+import { VideoPlayer } from "../components/media/video/videoPlayer"
+import { clearAll, clearBackground, clearSlide } from "../components/output/clear"
+import { getRecentlyUsedProjects, openProject } from "../components/show/project"
+import { importFromClipboard } from "../converters/importHelpers"
+import { addSection } from "../converters/project"
+import { requestMain, sendMain } from "../IPC/main"
+import { changeSlidesView } from "../show/slides"
+import { activeDrawerTab, activeEdit, activeFocus, activePage, activePopup, activeProject, activeStage, alertMessage, audioChannelsData, contextActive, drawer, editMode, focusedArea, focusMode, guideActive, media, os, outLocked, outputs, playingVideoState, projects, quickSearchActive, refreshEditSlide, selected, showRecentlyUsedProjects, special, spellcheck, styles, timelineRecordingAction, topContextActive } from "../stores"
+import { audioExtensions, imageExtensions, videoExtensions } from "../values/extensions"
+import { drawerTabs } from "../values/tabs"
+import { activeShow } from "./../stores"
+import { hideDisplay, isOutputWindow, togglePanels, triggerFunction } from "./common"
+import { getAccess } from "./profile"
+import { triggerPopupSubmit } from "./popup"
+import { send } from "./request"
+import { save } from "./save"
+import { isTypingTarget } from "./shortcutsHelper"
+
+const menus: TopViews[] = ["show", "edit", "stage", "draw", "settings"]
+
+const ctrlKeys = {
+    a: () => selectAll(),
+    c: () => copy(),
+    f: () => (shouldOpenReplace() ? activePopup.set("find_replace") : null),
+    v: () => paste(),
+    // give time for drawer to not toggle
+    d: () => setTimeout(() => duplicate(get(selected))),
+    x: () => cut(),
+    e: () => activePopup.set("export"),
+    i: (e: KeyboardEvent) => (e.altKey ? importFromClipboard() : activePopup.set("import")),
+    n: () => createNew(),
+    h: () => (get(activeDrawerTab) === "scripture" ? "" : activePopup.set("history")),
+    m: () =>
+        audioChannelsData.update((a) => {
+            const main = a.main || {}
+            a.main = { ...main, isMuted: !main.isMuted }
+            return a
+        }),
+    o: () => toggleOutputs(),
+    s: () => save(),
+    t: () => togglePanels(),
+    y: () => redo(),
+    z: () => undo(),
+    "?": () => activePopup.set("shortcuts")
+}
+
+const shiftCtrlKeys = {
+    d: () => (get(activePage) === "show" && get(activeShow) && (get(activeShow)?.type || "show") === "show" ? activePopup.set("next_timer") : ""),
+    // t: () => activePopup.set("translate"),
+    t: () => {
+        // toggle text edit
+        if (get(activeShow)?.type !== "show") return
+        if (get(activePage) === "edit" && get(editMode) === "text_edit") {
+            activePage.set("show")
+            editMode.set("default")
+            return
+        }
+        if (!get(activeEdit)?.showId) activeEdit.set({ slide: 0, items: [], showId: get(activeShow)?.id })
+        editMode.set("text_edit")
+        activePage.set("edit")
+    },
+    f: () => menuClick("focus_mode"),
+    n: () => activePopup.set("show"),
+    v: () => changeSlidesView(),
+    z: () => redo()
+}
+
+const altKeys = {
+    // when the caret is inside a list view textbox, EditboxLines splits at the caret instead
+    Enter: () => (get(activePage) === "show" && !document.activeElement?.closest(".quickEdit") ? menuClick("cut_in_half", true, null, null, null, get(selected)) : null)
+}
+
+export const disablePopupClose = ["initialize", "cloud_method"]
+const keys = {
+    Escape: () => {
+        // hide quick search
+        if (get(quickSearchActive)) {
+            quickSearchActive.set(false)
+            return
+        }
+
+        // hide context menu
+        if (get(contextActive) || get(topContextActive)) {
+            // timeout so output does not clear
+            setTimeout(() => {
+                closeContextMenu()
+                topContextActive.set(false)
+            }, 20)
+            return
+        }
+
+        const popupId = get(activePopup)
+
+        // blur focused elements
+        if (document.activeElement !== document.body) {
+            ;(document.activeElement as HTMLElement).blur()
+
+            if (!popupId && get(selected).id) setTimeout(() => selected.set({ id: null, data: [] }))
+            return
+        }
+
+        if (popupId && disablePopupClose.includes(popupId)) return
+        if (popupId === "alert" && get(alertMessage) === "actions.closing") return
+
+        // give time so output don't clear also
+        setTimeout(() => {
+            if (popupId) activePopup.set(null)
+            else if (get(selected).id) selected.set({ id: null, data: [] })
+        }, 20)
+    },
+    Enter: () => {
+        if (get(activePopup)) return
+
+        // open last used project if Enter pressed "first" on startup
+        if (get(showRecentlyUsedProjects) && !get(activeShow) && get(activePage) === "show") {
+            const lastUsedProject = getRecentlyUsedProjects()[0]
+            if (lastUsedProject) openProject(lastUsedProject.id)
+        }
+    },
+    Delete: () => (get(contextActive) ? null : deleteAction(get(selected), "remove")),
+    Backspace: () => keys.Delete(),
+    // give time so it don't clear slide
+    F2: () => (get(focusMode) ? null : setTimeout(() => menuClick("rename", true, null, null, null, get(selected)))),
+    // default menu "togglefullscreen" role not working in production on Windows/Linux
+    F11: () => (get(os).platform !== "darwin" ? sendMain(Main.FULLSCREEN) : null)
+}
+
+export function shouldOpenReplace() {
+    return get(activePage) === "edit" && get(activeEdit) && ((get(activeEdit).type || "show") === "show" || get(activeEdit).type === "overlay" || get(activeEdit).type === "template")
+}
+
+export function keydown(e: KeyboardEvent) {
+    // don't prevent close event
+    if (e.key === "F4" && e.altKey) return
+
+    if (isOutputWindow()) {
+        const currentOut = get(outputs)[Object.keys(get(outputs))[0]]?.out || {}
+        const contentDisplayed = currentOut.slide?.id || currentOut.background?.path || currentOut.background?.id || currentOut.overlays?.length
+        if (e.key === "Escape" && !contentDisplayed) return hideDisplay()
+
+        // allow custom shortcuts through main display (could be useful in some cases when you need output over the main app)
+        const allowThroughWindow = ["Escape", "ArrowRight", "ArrowLeft", " ", "PageDown", "PageUp", "Home", "End", ".", "F1", "F2", "F3", "F4", "F5"]
+        if (allowThroughWindow.includes(e.key)) send(OUTPUT, ["MAIN_SHORTCUT"], { key: e.key, ctrlKey: e.ctrlKey, metaKey: e.metaKey, altKey: e.altKey })
+
+        return
+    }
+
+    if (isComposing(e)) return
+    if (get(guideActive)) return
+
+    // clicking e.g. "Show" tab button will focus that making number tab change not work
+    if (document.activeElement?.nodeName === "BUTTON") (document.activeElement as any).blur()
+
+    const isEditingText = () => {
+        const activeElem = document.activeElement as HTMLElement | null
+        if (activeElem?.closest(".editItem") || activeElem?.classList?.contains("edit")) return true
+
+        const selection = window.getSelection()
+        const anchorElem = (selection?.anchorNode as Element)?.nodeType === Node.ELEMENT_NODE ? (selection?.anchorNode as Element) : selection?.anchorNode?.parentElement
+        return !!anchorElem?.closest(".edit")
+    }
+
+    if (e.ctrlKey || e.metaKey) {
+        const drawerMenus = Object.keys(drawerTabs) as DrawerTabIds[]
+        if (document.activeElement === document.body && Object.keys(drawerMenus).includes((Number(e.key) - 1).toString())) {
+            const tabId = drawerMenus[Number(e.key) - 1]
+            if (getAccess(tabId).global === "none") return
+
+            activeDrawerTab.set(tabId)
+            // open drawer
+            if (get(drawer).height < 300) drawer.set({ height: get(drawer).stored || 300, stored: null })
+            return
+        }
+
+        // Use normalized key for shortcuts with Ctrl/Cmd to support all keyboard layouts
+        let key = getNormalizedKey(e)
+        // Handle shift+Z for redo
+        if (key === "z" && e.shiftKey) key = "Z"
+
+        // Let text formatting shortcuts be handled by edit tools when a text box is active.
+        if (isFormattingKey(e) && isEditingText()) return
+
+        // use default input shortcuts on supported devices
+        const exeption = ["e", "i", "n", "o", "s", "a", "z", "Z", "y", "x"]
+        const passthrough = get(os).platform === "darwin" ? [...exeption, "c", "v"] : exeption
+
+        const activeElem = document.activeElement
+        if (key === "i" && activeElem?.closest(".editItem")) return
+        if (isTypingTarget(activeElem) && !passthrough.includes(key)) return
+
+        key = key.toLowerCase()
+
+        if (e.shiftKey && shiftCtrlKeys[key]) {
+            e.preventDefault()
+            shiftCtrlKeys[key](e)
+            return
+        }
+
+        const preventDefaults = ["z", "y"]
+        const invokeCtrlShortcut = (k: string) => {
+            if (!k) return false
+
+            const handler = ctrlKeys[k]
+            if (!handler) return false
+            handler(e)
+
+            if (preventDefaults.includes(k)) {
+                e.preventDefault()
+                if (get(activePage) === "edit") refreshEditSlide.set(true)
+            }
+
+            return true
+        }
+
+        if (invokeCtrlShortcut(key)) return
+
+        // fallback for macOS/Option-produced dead keys: try physical key code mapping
+        const phys = keyCodeMap[e.code]
+        if (phys) invokeCtrlShortcut(phys)
+        return
+    }
+
+    if (e.altKey) {
+        if (altKeys[e.key]) {
+            // if (document.activeElement?.classList.contains("edit") || document.activeElement?.tagName === "INPUT") return
+            e.preventDefault()
+            altKeys[e.key](e)
+        }
+        return
+    }
+
+    // Enter to submit popup
+    if (get(activePopup) && e.key === "Enter" && !e.repeat && triggerPopupSubmit(e)) {
+        e.preventDefault()
+        return
+    }
+
+    if (isTypingTarget(document.activeElement) && e.key !== "Escape") return
+
+    // change tab with number keys
+    const menu = menus[Number(e.key) - 1]
+    if (document.activeElement === document.body && !get(special).numberKeys && menu) {
+        activePage.set(menu)
+
+        // open edit
+        if (menu === "edit" && !get(activeEdit)?.id) {
+            activeEdit.set({ slide: 0, items: [], showId: get(activeShow)?.id })
+        }
+    }
+
+    if (keys[e.key]) {
+        e.preventDefault()
+        keys[e.key](e)
+    }
+}
+
+/**
+ * Normalize keyboard event to return the expected key character based on physical key position
+ * This fixes issues with non-Latin keyboard layouts (Cyrillic, etc.) where e.key returns
+ * different characters but we want shortcuts to work based on physical key position
+ *
+ * For example, on a Russian keyboard layout:
+ * - Physical Z key produces 'Я' character (e.key = 'Я')
+ * - But for Ctrl+Z shortcut, we want to detect the physical Z position (e.code = 'KeyZ')
+ * - This function maps 'KeyZ' -> 'z' regardless of keyboard layout
+ *
+ * This ensures shortcuts like Ctrl+Z, Ctrl+C, Ctrl+V work consistently across all keyboard layouts
+ */
+const cyrillicRegex = /[\u0400-\u04FF]/
+const latinShortcutRegex = /^[a-z]$/i
+const keyCodeMap: { [code: string]: string } = { KeyA: "a", KeyB: "b", KeyC: "c", KeyD: "d", KeyE: "e", KeyF: "f", KeyG: "g", KeyH: "h", KeyI: "i", KeyJ: "j", KeyK: "k", KeyL: "l", KeyM: "m", KeyN: "n", KeyO: "o", KeyP: "p", KeyQ: "q", KeyR: "r", KeyS: "s", KeyT: "t", KeyU: "u", KeyV: "v", KeyW: "w", KeyX: "x", KeyY: "y", KeyZ: "z" }
+
+type KeyboardNavigator = Navigator & {
+    keyboard?: {
+        getLayoutMap?: () => Promise<{ get(code: string): string | undefined }>
+    }
+}
+
+let keyboardLayoutMap: { get(code: string): string | undefined } | null = null
+const keyboard = typeof navigator === "undefined" ? undefined : (navigator as KeyboardNavigator).keyboard
+keyboard
+    ?.getLayoutMap?.()
+    .then((layoutMap) => (keyboardLayoutMap = layoutMap))
+    .catch(() => null)
+
+function getLayoutMappedShortcutKey(e: KeyboardEvent): string | null {
+    const layoutKey = keyboardLayoutMap?.get(e.code)
+    if (!layoutKey || layoutKey.length !== 1) return null
+
+    if (!latinShortcutRegex.test(layoutKey)) return null
+    return e.shiftKey ? layoutKey.toUpperCase() : layoutKey.toLowerCase()
+}
+
+function shouldNormalizeShortcutKey(e: KeyboardEvent): boolean {
+    return e.key.length === 1 && cyrillicRegex.test(e.key)
+}
+
+export function getNormalizedKey(e: KeyboardEvent): string {
+    const layoutMappedKey = getLayoutMappedShortcutKey(e)
+    if (layoutMappedKey) return layoutMappedKey
+
+    if (!shouldNormalizeShortcutKey(e)) return e.key
+
+    if (!keyCodeMap[e.code]) return e.key
+    if (e.shiftKey) return keyCodeMap[e.code].toUpperCase()
+    return keyCodeMap[e.code]
+}
+
+const formattingKeys = ["b", "i", "u"]
+export function isFormattingKey(e: KeyboardEvent): boolean {
+    if (!e.ctrlKey && !e.metaKey) return false
+    const key = getNormalizedKey(e).toLowerCase()
+    return formattingKeys.includes(key)
+}
+
+// IME candidate window check
+export function isComposing(e: KeyboardEvent): boolean {
+    // while keyCode is deprecated, "keyCode === 229" is an official exception
+    return e.isComposing || e.keyCode === 229
+}
+
+/// // PREVIEW /////
+
+export const previewCtrlShortcuts = {
+    l: () => outLocked.set(!get(outLocked)),
+    r: () => {
+        if (!get(outLocked)) refreshOut()
+    }
+}
+
+export const previewShortcuts = {
+    // presenter controller keys
+    Escape: () => {
+        // WIP if (allCleared) fullscreen = false
+
+        setTimeout(clearAll)
+    },
+    ".": () => {
+        if (!presentationControllersKeysDisabled()) clearAll()
+    },
+    F1: () => {
+        if (get(outLocked)) return
+        clearBackground()
+        timelineRecordingAction.set({ id: "clear_background" })
+    },
+    F2: () => {
+        // return if "rename" is selected
+        if (get(outLocked) || (get(selected).id && get(selected).id !== "scripture" && !get(focusMode))) return false
+        if (presentationControllersKeysDisabled()) return false
+
+        clearSlide()
+        timelineRecordingAction.set({ id: "clear_slide" })
+        return true
+    },
+    F3: () => {
+        if (get(outLocked)) return
+        setOutput("overlays", [])
+        setOutput("effects", [])
+        timelineRecordingAction.set({ id: "clear_overlays" })
+    },
+    F4: () => {
+        if (get(outLocked)) return
+        clearAudio("", { clearPlaylist: true, clearMicrophones: true, commonClear: true })
+        timelineRecordingAction.set({ id: "clear_audio" })
+    },
+    F5: () => {
+        if (!presentationControllersKeysDisabled()) OutputHelper.advanceOutputs()
+        else setOutput("transition", null)
+    },
+
+    " ": (e: KeyboardEvent) => {
+        if (get(contextActive)) return
+
+        // space bar should toggle timeline for show when active
+        if (isTimelineActive()) return
+
+        e.preventDefault()
+        OutputHelper.advanceOutputs(e)
+    },
+    ArrowRight: (e: any) => {
+        if (e.ctrlKey || e.metaKey) return
+        if (!e.preview && (get(activeEdit).items.length || get(activeStage).items.length)) return
+
+        // e.preventDefault()
+        OutputHelper.advanceOutputs(e)
+    },
+    ArrowLeft: (e: any) => {
+        if (e.ctrlKey || e.metaKey) return
+        if (!e.preview && (get(activeEdit).items.length || get(activeStage).items.length)) return
+
+        // e.preventDefault()
+        OutputHelper.advanceOutputs(e)
+    },
+    PageDown: (e: KeyboardEvent) => {
+        if (presentationControllersKeysDisabled()) return
+
+        e.preventDefault()
+        OutputHelper.advanceOutputs(e)
+    },
+    PageUp: (e: KeyboardEvent) => {
+        if (presentationControllersKeysDisabled()) return
+
+        e.preventDefault()
+        OutputHelper.advanceOutputs(e)
+    },
+    Home: (e: KeyboardEvent) => {
+        if (isTimelineActive()) {
+            triggerFunction("reset_timeline_view")
+            return
+        }
+
+        if (presentationControllersKeysDisabled()) return
+
+        e.preventDefault()
+        OutputHelper.advanceOutputs(e)
+    },
+    End: (e: KeyboardEvent) => {
+        if (presentationControllersKeysDisabled()) return
+
+        e.preventDefault()
+        OutputHelper.advanceOutputs(e)
+    }
+}
+
+function isTimelineActive() {
+    if (get(activePage) === "show") return get(special).timelineActive || get(special).projectTimelineActive
+    if (get(activePage) === "edit") return get(special).slideTimelineActive
+    return false
+}
+
+export function presentationControllersKeysDisabled() {
+    return false // always active at the moment
+    // return !!get(special).disablePresenterControllerKeys
+}
+
+export function closeContextMenu() {
+    contextActive.set(false)
+    spellcheck.set(null)
+}
+
+// CTRL + N
+function createNew() {
+    const selectId = get(selected)?.id || get(focusedArea)
+
+    if (get(activePage) === "show" && get(activeDrawerTab) === "scripture") createScriptureShow()
+    else if (selectId === "slide")
+        history({ id: "SLIDES" }) // show
+    else if (selectId === "show")
+        addSection() // project
+    else if (selectId.includes("category_")) {
+        // if (selectId.includes("media") || selectId.includes("audio")) sendMain(Main.OPEN_FOLDER, { channel: id, title, path })
+        if (selectId.includes("scripture")) activePopup.set("import_scripture")
+        else if (selectId.includes("calendar")) activePopup.set("import_calendar")
+        else history({ id: "UPDATE", location: { page: "drawer", id: selectId } })
+    } else if (selectId === "overlay") history({ id: "UPDATE", location: { page: "drawer", id: "overlay" } })
+    else if (selectId === "template") history({ id: "UPDATE", location: { page: "drawer", id: "template" } })
+    else if (selectId === "global_timer") activePopup.set("timer")
+    else if (["action", "variable"].includes(selectId)) activePopup.set(selectId as any)
+    else if (get(activePage) === "edit") addItem("text")
+    else if (get(activePage) === "stage") history({ id: "UPDATE", location: { page: "stage", id: "stage" } })
+    else {
+        console.info("CREATE NEW:", selectId)
+        activePopup.set("show")
+    }
+}
+
+// this only works if opened in preview - if not api
+export async function togglePlayingMedia(e: Event | null = null, back = false, api = false) {
+    if (get(outLocked)) return
+    // if ($focusMode || e.target?.closest(".edit") || e.target?.closest("input")) return
+    let item = get(focusMode) ? get(activeFocus) : get(activeShow)
+
+    const currentOutput = getFirstActiveOutput()
+    const background = currentOutput?.out?.background
+    const currentlyPlaying = background?.path || background?.id
+    const backgroundType = background?.type
+
+    if (api) {
+        // get playing audio
+        let audioId = AudioPlayer.getAllPlaying(false)[0]
+        if (audioId) item = { id: audioId, type: "audio" }
+        else if (currentlyPlaying) item = { id: currentlyPlaying, type: backgroundType === "player" ? "player" : "video" }
+    }
+
+    const type: ShowType | undefined = item?.type
+    if (!item || !type) return
+    e?.preventDefault()
+
+    const alreadyPlaying = currentlyPlaying === item.id
+
+    if (type === "video" || type === "image" || type === "player") {
+        if (alreadyPlaying) {
+            // play / pause video
+            const outputId = currentOutput?.id || ""
+            const key = `${currentlyPlaying}_${outputId}`
+            const videoData = get(playingVideoState)[key] || {}
+            if (videoData.type && videoData.type !== "background") return
+
+            VideoPlayer.start(currentlyPlaying, { paused: !videoData.paused }, [outputId])
+            return
+        }
+
+        // const currentStyle = getCurrentStyle(get(styles), currentOutput?.style)
+        const outputStyle = get(styles)[currentOutput?.style || ""]
+        const mediaData = get(media)[item.id] || {}
+        const mediaStyle = getMediaStyle(mediaData, outputStyle)
+
+        const videoType = getMediaLayerType(item.id, mediaStyle)
+        const projectItem = item.index !== undefined ? get(projects)[get(activeProject) || ""]?.shows?.[item.index] : null
+        const shouldLoop = typeof projectItem?.loop === "boolean" ? projectItem.loop : videoType === "background" ? true : false
+        const shouldBeMuted = typeof projectItem?.muted === "boolean" ? projectItem.muted : videoType === "background" ? true : false
+
+        // clear slide
+        if (videoType === "foreground" || (videoType !== "background" && (type === "image" || !shouldLoop))) clearSlide()
+
+        const located = await getMedia(item.id)
+        if (!located) return
+
+        setOutput("background", { type, path: located.path, muted: shouldBeMuted, loop: shouldLoop, ...mediaStyle })
+    } else if (type === "audio") {
+        AudioPlayer.start(item.id, { name: (item as any).name || "" }, { pauseIfPlaying: true })
+    } else if (type === "folder") {
+        playFolder(item.id, back)
+    }
+}
+
+// FolderShow.svelte shortcuts
+export async function playFolder(path: string, back = false) {
+    const currentOutput = getFirstActiveOutput()
+    const currentlyPlaying = currentOutput?.out?.background?.path
+
+    const mediaExtensions = [...videoExtensions, ...imageExtensions, ...audioExtensions]
+    const files = keysToID((await requestMain(Main.READ_FOLDER, { path })) || {})
+    const folderFiles = sortByName(files.filter((a) => mediaExtensions.includes(getExtension(a.name))).map((a) => ({ path: a.path, name: a.name, type: getMediaType(getExtension(a.name)) })))
+    if (!folderFiles.length) return
+
+    const mediaFiles = folderFiles.filter((a) => a.type !== "audio")
+    const playingIndex = mediaFiles.findIndex((a) => a.path === currentlyPlaying)
+    const newMedia = back ? (mediaFiles[playingIndex - 1] ?? mediaFiles[mediaFiles.length - 1]) : (mediaFiles[playingIndex + 1] ?? mediaFiles[0])
+    const allFilesIndex = folderFiles.findIndex((a) => a.path === newMedia.path)
+
+    // skip and play audio file
+    if (!back && folderFiles[allFilesIndex - 1]?.type === "audio") {
+        AudioPlayer.start(folderFiles[allFilesIndex - 1].path, { name: folderFiles[allFilesIndex - 1].name })
+    }
+
+    const outputStyle = get(styles)[currentOutput?.style || ""]
+    const mediaStyle = getMediaStyle(get(media)[newMedia.path], outputStyle)
+
+    setOutput("background", { type: newMedia.type, path: newMedia.path, muted: false, loop: false, ...mediaStyle, folderPath: path })
+
+    startFolderTimer(path, newMedia)
+}

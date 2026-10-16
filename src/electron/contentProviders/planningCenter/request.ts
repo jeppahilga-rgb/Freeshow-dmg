@@ -1,0 +1,1123 @@
+/**
+ * WARNING: This file should ONLY be accessed through PlanningCenterProvider.
+ * Do not import or use functions from this file directly in other parts of the application.
+ * Use ContentProviderRegistry or PlanningCenterProvider instead.
+ */
+
+import path from "path"
+import { uid } from "uid"
+import { ToMain } from "../../../types/IPC/ToMain"
+import type { LessonsData } from "../../../types/Main"
+import type { Project } from "../../../types/Projects"
+import type { Chords, Show, Slide, SlideData } from "../../../types/Show"
+import { downloadLessonsMedia } from "../../data/downloadMedia"
+import { sendToMain } from "../../IPC/main"
+import { getDataFolderPath } from "../../utils/files"
+import { httpsRequest } from "../../utils/requests"
+import { PCO_API_URL, pcoConnect, type PCOScopes } from "./connect"
+import { filterPlanningCenterKeywordLines, isPlanningCenterKeywordLine } from "./songKeywords"
+
+const PCO_API_version = 2
+
+type PCORequestData = {
+    scope: PCOScopes
+    endpoint: string
+    params?: Record<string, string>
+}
+
+type SongSection = {
+    label: string
+    lyrics: string
+    breaks_at?: number
+}
+
+type ParsedSectionLine = {
+    text: string
+    chords?: Chords[]
+    repeatStartCount?: number
+    repeatEndCount?: number
+    hidden?: boolean
+}
+
+type RepeatConfig = {
+    count: number
+    startIndex: number
+}
+
+type RepeatDelimiterData = {
+    cleanLine: string
+    repeatStartCount?: number
+    repeatEndCount?: number
+    markerOnly: boolean
+}
+
+type SectionSourceLine = RepeatDelimiterData & {
+    line: string
+}
+
+const chordTokenRegex = /^[A-G](?:#|b)?(?:m|maj|min|sus|add|aug|dim)?\d*(?:\/[A-G](?:#|b)?)?$/i
+
+function isChordProgressionLine(line: string): boolean {
+    const trimmed = line.trim()
+    if (!trimmed) return false
+
+    const withoutLabel = trimmed.replace(/^[A-ZÁÉÍÓÚÑ_ ]+:\s*/i, "").trim()
+    if (!withoutLabel) return false
+
+    const tokens = withoutLabel.split(/\s+/).filter(Boolean)
+    if (!tokens.length) return false
+
+    let chordCount = 0
+    for (const rawToken of tokens) {
+        // Strip trailing punctuation, then strip surrounding parentheses used as grouping markers
+        const token = rawToken
+            .replace(/[.,;:]+$/, "")
+            .replace(/^\(+/, "")
+            .replace(/\)+$/, "")
+
+        // Token was composed entirely of parentheses (grouping markers like a lone "(" or ")")
+        if (!token) continue
+
+        if (chordTokenRegex.test(token)) {
+            chordCount++
+            continue
+        }
+
+        if (/^x\d+$/i.test(token) || /^\(x\d+\)$/i.test(token) || /^\|+$/.test(token) || /^-+$/.test(token) || /^\/+$/i.test(token)) {
+            continue
+        }
+
+        return false
+    }
+
+    return chordCount >= 2
+}
+
+function parseChordChartIntoSections(chordChart: string): SongSection[] {
+    const sections: SongSection[] = []
+    const lines = chordChart.split(/\r?\n/)
+    let currentSectionLabel = ""
+    let currentSectionContent: string[] = []
+
+    for (const line of lines) {
+        const trimmed = line.trim()
+
+        if (isPlanningCenterKeywordLine(trimmed)) continue
+
+        // Detect section headers (VERSE, CHORUS, BRIDGE, etc.)
+        // Order matters: longer patterns first (PRECORO before PRE, INSTRUMENTAL before INTRO, VERSE before VERS)
+        const sectionMatch = trimmed.match(/^\[?(POST-CHORUS|POSTCHORUS|POST-CORO|POSTCORO|PRE-CHORUS|PRECHORUS|PRE-CORO|PRECORO|INSTRUMENTAL|ESTRIBILLO|BREAKDOWN|TURNAROUND|INTERLUDE|REFRENG|REFRAIN|ENDING|PUENTE|CHORUS|VERSE|VERSO|BRIDGE|INTRO|OUTRO|FINAL|BREAK|SOLO|HOOK|VAMP|POST|VERS|CORO|PRE|TAG)(\s*\d+)?\]?(?:\s|$)/i)
+        if (sectionMatch) {
+            // Save previous section if exists (including sections with only chords)
+            if (currentSectionLabel) {
+                const content = currentSectionContent.filter((l) => l.trim()).join("\n")
+                if (content) {
+                    sections.push({
+                        label: currentSectionLabel,
+                        lyrics: content
+                    })
+                }
+            }
+            currentSectionLabel = sectionMatch[0].trim().replace(/[\[\]]/g, "")
+            currentSectionContent = []
+            continue
+        }
+
+        // Keep lyric lines (even if empty)
+        if (trimmed) {
+            currentSectionContent.push(line)
+        }
+    }
+
+    // Save last section
+    if (currentSectionLabel) {
+        const content = currentSectionContent.filter((l) => l.trim()).join("\n")
+        if (content) {
+            sections.push({
+                label: currentSectionLabel,
+                lyrics: content
+            })
+        }
+    }
+
+    return sections
+}
+
+interface ServiceType {
+    id: string
+    attributes: {
+        name: string
+    }
+    relationships?: {
+        parent?: { data: { id: string } | null }
+    }
+}
+
+interface PCOFolder {
+    id: string
+    attributes: { name: string }
+    relationships: {
+        parent: { data: { id: string } | null }
+    }
+}
+
+export interface PCOFolderTreeNode {
+    id: string
+    name: string
+    type: "folder" | "service_type" | "plan"
+    serviceTypeId?: string // only present on plan nodes
+    children: PCOFolderTreeNode[]
+}
+
+interface Plan {
+    id: string
+    attributes: {
+        title: string
+        sort_date: string
+        created_at: string
+        items_count: number
+    }
+}
+
+interface Arrangement {
+    id: string
+    type: string
+}
+
+interface ProjectItem {
+    id: string
+    attributes: {
+        item_type: string
+        title?: string
+        description?: string
+        html_details?: string | null
+        length?: number
+    }
+    relationships: {
+        arrangement: {
+            data: Arrangement | null
+        }
+    }
+    custom_arrangement_sequence?: any[]
+}
+
+export async function pcoRequest(data: PCORequestData, attempt = 0): Promise<any> {
+    const MAX_RETRIES = 3
+    const PCO_ACCESS = await pcoConnect(data.scope)
+
+    if (!PCO_ACCESS) {
+        sendToMain(ToMain.ALERT, "Not authorized at Planning Center (try logging out and in again)!")
+        return null
+    }
+
+    // Build the API path with query parameters if provided
+    let apiPath = `/${data.scope || "services"}/v${PCO_API_version}/${data.endpoint}`
+    if (data.params) {
+        const queryParams = new URLSearchParams(data.params).toString()
+        apiPath = `${apiPath}?${queryParams}`
+    }
+
+    const headers = { Authorization: `Bearer ${PCO_ACCESS.access_token}` }
+
+    return new Promise((resolve) => {
+        httpsRequest(PCO_API_URL, apiPath, "GET", headers, {}, (err, result) => {
+            if (err) {
+                // Handle rate limiting
+                // https://developer.planning.center/docs/#/overview/rate-limiting
+                if (err.statusCode === 429) {
+                    const retryAfter = parseInt(err?.headers?.["retry-after"], 10) || 2
+                    rateLimit(retryAfter)
+                    return
+                }
+
+                // 404 means the resource doesn't exist (e.g., no active PCO Live session) — not an error
+                if (err.statusCode === 404) return resolve(null)
+
+                const message = err.message?.includes("401") ? "Make sure you have created some 'services' in your account!" : err.message
+                sendToMain(ToMain.ALERT, "Could not get data! " + message)
+                return resolve(null)
+            }
+
+            let resultData = result.data
+
+            // Convert to array for consistent handling
+            if (!Array.isArray(resultData)) resultData = [resultData]
+
+            resolve(resultData)
+        })
+
+        function rateLimit(retryAfter: number) {
+            if (attempt >= MAX_RETRIES) {
+                sendToMain(ToMain.ALERT, "Planning Center rate limit reached! Please try again later")
+                resolve(null)
+                return
+            }
+
+            console.warn(`Rate limited. Retrying after ${retryAfter} seconds... (attempt ${attempt + 1})`)
+            sendToMain(ToMain.ALERT, `Planning Center rate limit reached! Trying again in ${retryAfter} seconds`)
+
+            setTimeout(async () => {
+                const retryResult = await pcoRequest(data, attempt + 1)
+                resolve(retryResult)
+            }, retryAfter * 1000)
+        }
+    })
+}
+
+const ONE_WEEK_MS = 604800000
+
+async function buildPcoTree(includePlans: boolean): Promise<PCOFolderTreeNode[]> {
+    const rawFolders = await pcoRequest({ scope: "services", endpoint: "folders" })
+    const folderMap = new Map<string, PCOFolderTreeNode>()
+    const rootNodes: PCOFolderTreeNode[] = []
+
+    if (rawFolders?.length) {
+        rawFolders.forEach((f: PCOFolder) => folderMap.set(f.id, { id: f.id, name: f.attributes.name, type: "folder", children: [] }))
+        rawFolders.forEach((f: PCOFolder) => {
+            const parentId = f.relationships?.parent?.data?.id
+            const node = folderMap.get(f.id)!
+            if (parentId && folderMap.has(parentId)) folderMap.get(parentId)!.children.push(node)
+            else rootNodes.push(node)
+        })
+    }
+
+    const serviceTypeIdsInFolders = new Set<string>()
+
+    if (rawFolders?.length) {
+        await Promise.all(
+            rawFolders.map(async (f: PCOFolder) => {
+                const stList = await pcoRequest({ scope: "services", endpoint: `folders/${f.id}/service_types` })
+                if (!stList) return
+                await Promise.all(
+                    stList.map(async (st: ServiceType) => {
+                        if (!st?.id) return
+                        serviceTypeIdsInFolders.add(st.id)
+                        const planNodes = includePlans ? await fetchAllFuturePlans(st.id) : []
+                        folderMap.get(f.id)?.children.push({ id: st.id, name: st.attributes.name, type: "service_type", children: planNodes })
+                    })
+                )
+            })
+        )
+    }
+
+    const allServiceTypes = await pcoRequest({ scope: "services", endpoint: "service_types" })
+    if (allServiceTypes) {
+        await Promise.all(
+            allServiceTypes.map(async (st: ServiceType) => {
+                if (!st?.id || serviceTypeIdsInFolders.has(st.id)) return
+                const planNodes = includePlans ? await fetchAllFuturePlans(st.id) : []
+                rootNodes.push({ id: st.id, name: st.attributes.name, type: "service_type", children: planNodes })
+            })
+        )
+    }
+
+    return rootNodes
+}
+
+export async function pcoFetchFolderTree(): Promise<PCOFolderTreeNode[]> {
+    return buildPcoTree(false)
+}
+
+async function fetchAllFuturePlans(serviceTypeId: string): Promise<PCOFolderTreeNode[]> {
+    const plans = await pcoRequest({ scope: "services", endpoint: `service_types/${serviceTypeId}/plans`, params: { order: "sort_date", filter: "future", per_page: "25" } })
+    if (!plans?.length) return []
+    return plans.filter((p: Plan) => p?.id).map((p: Plan) => ({ id: p.id, name: p.attributes.title || getDateTitle(p.attributes.sort_date), type: "plan" as const, serviceTypeId, children: [] }))
+}
+
+export async function pcoFetchServiceTree(): Promise<PCOFolderTreeNode[]> {
+    return buildPcoTree(true)
+}
+
+export async function pcoLoadSinglePlan(serviceTypeId: string, planId: string): Promise<void> {
+    const [stList, planList] = await Promise.all([pcoRequest({ scope: "services", endpoint: `service_types/${serviceTypeId}` }), pcoRequest({ scope: "services", endpoint: `service_types/${serviceTypeId}/plans/${planId}` })])
+
+    const serviceType = stList?.[0]
+    const plan = planList?.[0]
+    if (!serviceType || !plan) {
+        sendToMain(ToMain.ALERT, "Could not load the selected Planning Center service.")
+        return
+    }
+
+    sendToMain(ToMain.TOAST, "Loading service from Planning Center")
+
+    const result = await processPlan(plan, serviceType)
+    if (!result) {
+        sendToMain(ToMain.ALERT, "No items found in the selected Planning Center service.")
+        return
+    }
+
+    sendToMain(ToMain.PROVIDER_PROJECTS, {
+        providerId: "planningcenter",
+        categoryName: "Planning Center",
+        shows: result.shows,
+        projects: [result.project],
+        pcoPlans: [{ planId: plan.id, serviceTypeId, name: result.project.name, date: plan.attributes.sort_date }]
+    })
+}
+
+function expandFolderIds(allFolders: PCOFolder[], syncFolderIds: string[]): string[] {
+    const included = new Set<string>(syncFolderIds)
+    let changed = true
+    while (changed) {
+        changed = false
+        allFolders.forEach((f) => {
+            const parentId = f.relationships?.parent?.data?.id
+            if (parentId && included.has(parentId) && !included.has(f.id)) {
+                included.add(f.id)
+                changed = true
+            }
+        })
+    }
+    return Array.from(included)
+}
+
+async function getServiceTypesForFolders(rawFolders: PCOFolder[], syncFolderIds: string[]): Promise<ServiceType[]> {
+    const expandedIds = expandFolderIds(rawFolders, syncFolderIds)
+    const results = await Promise.all(expandedIds.map((id) => pcoRequest({ scope: "services", endpoint: `folders/${id}/service_types` })))
+    const seen = new Set<string>()
+    return (results.flat() as ServiceType[]).filter((st) => st?.id && !seen.has(st.id) && !!seen.add(st.id))
+}
+
+export async function pcoLoadServices(syncFolderIds?: string[]) {
+    let serviceTypes: ServiceType[]
+
+    if (syncFolderIds?.length) {
+        const rawFolders = await pcoRequest({ scope: "services", endpoint: "folders" })
+        if (!rawFolders) {
+            console.info("Could not fetch Planning Center folders")
+            return
+        }
+        serviceTypes = await getServiceTypesForFolders(rawFolders, syncFolderIds)
+        if (!serviceTypes.length) {
+            sendToMain(ToMain.ALERT, "No services found in the selected folders. Check your folder selection in Settings > Connection.")
+            return
+        }
+    } else {
+        // sync all folders if no specific folders are selected
+        const all = await fetchServiceTypes()
+        if (!all) {
+            console.info("No service types found in Planning Center")
+            return
+        }
+        serviceTypes = all
+    }
+
+    sendToMain(ToMain.TOAST, "Getting schedules from Planning Center")
+
+    const results = await processAllServiceTypes(serviceTypes)
+
+    if (results.downloadableMedia.length > 0) {
+        downloadLessonsMedia(results.downloadableMedia)
+    }
+
+    sendToMain(ToMain.PROVIDER_PROJECTS, { providerId: "planningcenter", categoryName: "Planning Center", shows: results.shows, projects: results.projects, pcoPlans: results.pcoPlans })
+}
+
+async function fetchServiceTypes() {
+    const typesEndpoint = "service_types"
+    const serviceTypes = await pcoRequest({
+        scope: "services",
+        endpoint: typesEndpoint
+    })
+
+    if (!serviceTypes || !serviceTypes[0]?.id) {
+        sendToMain(ToMain.ALERT, "No service types found in Planning Center! Please create some services first.")
+        return null
+    }
+
+    return serviceTypes
+}
+
+async function processAllServiceTypes(serviceTypes: ServiceType[]): Promise<any> {
+    const projects: Project[] = []
+    const shows: Show[] = []
+    const downloadableMedia: LessonsData[] = []
+    const pcoPlans: { planId: string; serviceTypeId: string; name: string; date: string }[] = []
+
+    await Promise.all(
+        serviceTypes.map(async (serviceType) => {
+            const servicePlans = await fetchServicePlans(serviceType)
+            if (!servicePlans || !servicePlans.length) return
+
+            servicePlans.forEach((plan: Plan) => {
+                pcoPlans.push({
+                    planId: plan.id,
+                    serviceTypeId: serviceType.id,
+                    name: plan.attributes.title || getDateTitle(plan.attributes.sort_date),
+                    date: plan.attributes.sort_date
+                })
+            })
+
+            const results = await processServicePlans(servicePlans, serviceType)
+
+            projects.push(...results.projects)
+            shows.push(...results.shows)
+            downloadableMedia.push(...results.downloadableMedia)
+        })
+    )
+
+    return { projects, shows, downloadableMedia, pcoPlans }
+}
+
+async function fetchServicePlans(serviceType: ServiceType) {
+    const typesEndpoint = "service_types"
+    const plansEndpoint = `${typesEndpoint}/${serviceType.id}/plans`
+
+    const servicePlans = await pcoRequest({
+        scope: "services",
+        endpoint: plansEndpoint,
+        params: {
+            order: "sort_date",
+            filter: "future"
+        }
+    })
+
+    if (!servicePlans || !servicePlans[0]?.id) {
+        console.warn(`No plans found for service type ${serviceType.attributes.name} (${serviceType.id})`)
+        return null
+    }
+
+    const filteredPlans = servicePlans.filter(({ attributes: a }: any) => {
+        if (a.items_count === 0) return false
+        const date = new Date(a.sort_date).getTime()
+        const today = Date.now()
+        return date < today + ONE_WEEK_MS
+    })
+
+    return filteredPlans
+}
+
+async function processServicePlans(plans: Plan[], serviceType: ServiceType) {
+    const projects: Project[] = []
+    const shows: Show[] = []
+    const downloadableMedia: LessonsData[] = []
+
+    await Promise.all(
+        plans.map(async (plan: Plan) => {
+            const results = await processPlan(plan, serviceType)
+            if (results) {
+                if (results.project) projects.push(results.project)
+                if (results.shows.length) shows.push(...results.shows)
+                if (results.downloadableMedia.length) downloadableMedia.push(...results.downloadableMedia)
+            }
+        })
+    )
+
+    return { projects, shows, downloadableMedia }
+}
+
+async function processPlan(plan: Plan, serviceType: ServiceType): Promise<any> {
+    const typesEndpoint = "service_types"
+    const plansEndpoint = `${typesEndpoint}/${serviceType.id}/plans`
+    const itemsEndpoint = `${plansEndpoint}/${plan.id}/items`
+
+    const planItems = await pcoRequest({ scope: "services", endpoint: itemsEndpoint, params: { per_page: "100" } })
+    if (!planItems[0]?.id) return null
+
+    const projectItems = []
+    const shows = []
+    const downloadableMedia: LessonsData[] = []
+
+    for (const item of planItems) {
+        const type = item.attributes.item_type
+        let result: any
+
+        if (type === "song") {
+            result = await processSongItem(item, itemsEndpoint)
+        } else if (type === "item") {
+            result = processRegularItem(item)
+        } else if (type === "media") {
+            result = await processMediaItem(item, itemsEndpoint, serviceType)
+        } else if (type === "header") {
+            result = processHeaderItem(item)
+        }
+
+        if (result) {
+            if (result.projectItem) projectItems.push(result.projectItem)
+            if (result.show) shows.push(result.show)
+            if (result.downloadableMedia) downloadableMedia.push(result.downloadableMedia)
+        }
+    }
+
+    if (!projectItems.length) return null
+
+    const project = createProjectData(plan, serviceType, projectItems)
+
+    return { project, shows, downloadableMedia }
+}
+
+async function processSongItem(item: ProjectItem, itemsEndpoint: string) {
+    const songDataEndpoint = `${itemsEndpoint}/${item.id}/song`
+    const songData = (await pcoRequest({ scope: "services", endpoint: songDataEndpoint }))[0]
+    if (!songData?.id) return null
+
+    const arrangementEndpoint = `/songs/${songData.id}/arrangements/${item.relationships.arrangement.data?.id}`
+    const songArrangement = (await pcoRequest({ scope: "services", endpoint: arrangementEndpoint }))[0]
+    if (!songArrangement?.id) return null
+
+    const song = songArrangement.attributes
+    const sequence = item.custom_arrangement_sequence || song.sequence || []
+
+    let sections: SongSection[] = []
+
+    // Get sections from API first
+    const apiSections: SongSection[] = (await pcoRequest({ scope: "services", endpoint: `${arrangementEndpoint}/sections` }))[0]?.attributes.sections || []
+
+    // Parse sections from chord chart if available (contains repeat markers etc.)
+    const chordChartSections = song.chord_chart ? parseChordChartIntoSections(song.chord_chart) : []
+
+    // Merge API sections with chord chart sections
+    const mergedSections = apiSections.map((apiSec) => {
+        const found = findSectionByLabel(apiSec.label, chordChartSections)
+        return normalizeSongSection(found || apiSec)
+    })
+
+    // Append chord chart sections that aren't represented in the API sections
+    chordChartSections.forEach((ccSec) => {
+        if (!findSectionByLabel(ccSec.label, apiSections)) {
+            mergedSections.push(normalizeSongSection(ccSec))
+        }
+    })
+
+    sections = mergedSections
+
+    if (!sections.length) {
+        sections = sequence.map((id: any) => ({ label: id, lyrics: "" }))
+    }
+
+    // Order sections according to the arrangement sequence
+    if (sequence.length && sections.length) {
+        sections = getOrderedSections(sections, sequence)
+    }
+
+    // Debug log if we have a sequence but no sections after ordering
+    if (sequence.length && !sections.length) {
+        console.warn(`Planning Center: Song "${songData.attributes?.title}" has sequence but no matching sections. Sequence: ${sequence.join(", ")}`)
+    }
+
+    const show = getShow(songData, song, sections)
+    const showId = `pcosong_${songData.id}`
+
+    return {
+        show: { id: showId, ...show },
+        projectItem: { type: "show", id: showId, scheduleLength: item.attributes.length }
+    }
+}
+
+function findSectionByLabel(label: string, sections: SongSection[]): SongSection | undefined {
+    const search = label.toLowerCase().replace(/\s+/g, "")
+    // Exact or normalized/no-space match
+    const found = sections.find((s) => s.label.toLowerCase().replace(/\s+/g, "") === search)
+    if (found) return found
+
+    // Partial/prefix match
+    return sections.find((s) => {
+        const sLower = s.label.toLowerCase()
+        const labelLower = label.toLowerCase()
+        return sLower.startsWith(labelLower) || labelLower.startsWith(sLower)
+    })
+}
+
+function getOrderedSections(sections: SongSection[], sequence: any[]): SongSection[] {
+    const orderedSections: SongSection[] = []
+
+    sequence.forEach((label) => {
+        const foundSection = findSectionByLabel(String(label), sections)
+        if (foundSection) {
+            orderedSections.push({ ...foundSection })
+        } else {
+            orderedSections.push({ label: String(label), lyrics: "" })
+        }
+    })
+
+    return orderedSections
+}
+
+function normalizeSongSection(section: SongSection): SongSection {
+    return {
+        ...section,
+        lyrics: filterPlanningCenterKeywordLines(section.lyrics)
+    }
+}
+
+function getRepeatMarkerCount(value: string): number | undefined {
+    if (!/^\/{2,}$/.test(value)) return undefined
+    return value.length
+}
+
+function extractRepeatDelimiters(line: string): RepeatDelimiterData {
+    let cleanLine = line
+    let repeatStartCount: number | undefined
+    let repeatEndCount: number | undefined
+
+    const startMatch = cleanLine.match(/^(\s*)(\/{2,})/)
+    if (startMatch) {
+        repeatStartCount = getRepeatMarkerCount(startMatch[2])
+        cleanLine = cleanLine.slice(startMatch[0].length)
+    }
+
+    const endMatch = cleanLine.match(/(\/{2,})(\s*)$/)
+    if (endMatch) {
+        repeatEndCount = getRepeatMarkerCount(endMatch[1])
+        cleanLine = cleanLine.slice(0, cleanLine.length - endMatch[0].length)
+    }
+
+    const endMatchBeforeTrailingChords = !repeatEndCount ? cleanLine.match(/^(.*?)(\/{2,})((?:\s*\[[^\]]+\])+\s*)$/) : null
+    if (endMatchBeforeTrailingChords) {
+        repeatEndCount = getRepeatMarkerCount(endMatchBeforeTrailingChords[2])
+        cleanLine = `${endMatchBeforeTrailingChords[1].trimEnd()}${endMatchBeforeTrailingChords[3].trimStart()}`
+    }
+
+    const markerOnly = Boolean((repeatStartCount || repeatEndCount) && !cleanLine.trim())
+
+    return { cleanLine, repeatStartCount, repeatEndCount, markerOnly }
+}
+
+function toSectionSourceLine(line: string): SectionSourceLine {
+    const repeatData = extractRepeatDelimiters(line)
+    return {
+        ...repeatData,
+        line: repeatData.cleanLine
+    }
+}
+
+function toParsedSectionLine(source: SectionSourceLine, overrides: Partial<ParsedSectionLine> = {}): ParsedSectionLine {
+    return {
+        text: source.line.trim(),
+        repeatStartCount: source.repeatStartCount,
+        repeatEndCount: source.repeatEndCount,
+        hidden: source.markerOnly,
+        ...overrides
+    }
+}
+
+function canAlignChordLineWithLyricLine(line: string): boolean {
+    return Boolean(line.trim() && !isChordProgressionLine(line) && !getChordLineData(line) && !parseInlineBracketLine(line))
+}
+
+function copyChords(chords?: Chords[], generateIds = false): Chords[] | undefined {
+    return chords?.map((chord) => ({ ...chord, ...(generateIds ? { id: uid(5) } : {}) }))
+}
+
+function parseInlineBracketLine(line: string): { text: string; chords: Chords[] } | null {
+    if (!line.includes("[") || !line.includes("]")) return null
+
+    let text = ""
+    const chords: Chords[] = []
+    let cursor = 0
+
+    while (cursor < line.length) {
+        const start = line.indexOf("[", cursor)
+        if (start < 0) {
+            text += line.slice(cursor)
+            break
+        }
+
+        text += line.slice(cursor, start)
+        const end = line.indexOf("]", start + 1)
+        if (end < 0) {
+            text += line.slice(start)
+            break
+        }
+
+        const chord = line.slice(start + 1, end).trim()
+        if (chord) {
+            chords.push({ id: uid(5), pos: text.length, key: chord })
+        }
+
+        cursor = end + 1
+    }
+
+    if (!chords.length) return null
+    return { text, chords }
+}
+
+function parsePlainChordLine(line: string): Chords[] | null {
+    const matches = [...line.matchAll(/\S+/g)]
+    if (!matches.length) return null
+
+    const chords: Chords[] = []
+    for (const match of matches) {
+        // Strip surrounding parentheses used as grouping markers, e.g. "(G)" -> "G", "G)" -> "G"
+        const token = match[0].replace(/^\(+/, "").replace(/\)+$/, "")
+        const pos = match.index ?? 0
+
+        // Token was just parentheses, or a separator character — skip without rejecting the line
+        if (!token || /^\|+$/.test(token) || /^-+$/.test(token) || /^\/+$/i.test(token)) continue
+
+        if (!chordTokenRegex.test(token)) return null
+        chords.push({ id: uid(5), pos, key: token })
+    }
+
+    return chords.length ? chords : null
+}
+
+function getChordLineData(line: string): Chords[] | null {
+    const inline = parseInlineBracketLine(line)
+    if (inline && !inline.text.trim()) return inline.chords
+    return parsePlainChordLine(line)
+}
+
+function alignChordsToLyricLine(chords: Chords[], rawLyricLine: string, sectionBaseOffset: number): { text: string; chords: Chords[] } {
+    const lyricText = rawLyricLine.trim()
+    const leadingWhitespace = rawLyricLine.length - rawLyricLine.trimStart().length
+    const alignedChords: Chords[] = []
+
+    chords
+        .slice()
+        .sort((a, b) => a.pos - b.pos)
+        .forEach((chord) => {
+            let pos = chord.pos - sectionBaseOffset - leadingWhitespace
+            if (!lyricText.length) pos = 0
+            else {
+                if (pos < 0) pos = 0
+                if (pos >= lyricText.length) pos = lyricText.length - 1
+            }
+
+            if (alignedChords.some((existingChord) => existingChord.pos === pos)) {
+                pos++
+            }
+
+            alignedChords.push({ id: chord.id, key: chord.key, pos })
+        })
+
+    return { text: lyricText, chords: alignedChords }
+}
+
+function parseSectionLines(lyrics: string): ParsedSectionLine[] {
+    const sourceLines = filterPlanningCenterKeywordLines(lyrics).split("\n").map(toSectionSourceLine)
+
+    // Planning Center often includes a common left indent in chord-only lines.
+    // Remove that shared baseline so chord positions match lyric content columns.
+    const sectionBaseOffset = sourceLines.reduce(
+        (minOffset, entry, i) => {
+            const line = entry.line
+            const lineChords = getChordLineData(line)
+            if (!lineChords?.length || i + 1 >= sourceLines.length) return minOffset
+
+            const nextLine = sourceLines[i + 1].line
+            if (!canAlignChordLineWithLyricLine(nextLine)) return minOffset
+
+            const firstChordPos = lineChords[0].pos
+            if (minOffset === null) return firstChordPos
+            return Math.min(minOffset, firstChordPos)
+        },
+        null as number | null
+    )
+
+    const parsedLines: ParsedSectionLine[] = []
+
+    for (let i = 0; i < sourceLines.length; i++) {
+        const currentEntry = sourceLines[i]
+        const currentLine = currentEntry.line
+
+        if (!currentLine.trim()) {
+            parsedLines.push(toParsedSectionLine(currentEntry, { text: "" }))
+            continue
+        }
+
+        if (isChordProgressionLine(currentLine)) {
+            continue
+        }
+
+        const inline = parseInlineBracketLine(currentLine)
+        if (inline) {
+            if (inline.text.trim()) {
+                parsedLines.push(toParsedSectionLine(currentEntry, { text: inline.text.trim(), chords: inline.chords, hidden: false }))
+                continue
+            } else {
+                parsedLines.push(toParsedSectionLine(currentEntry, { text: "", chords: inline.chords, hidden: false }))
+                continue
+            }
+        }
+
+        const chordLineData = getChordLineData(currentLine)
+        if (chordLineData && i + 1 < sourceLines.length) {
+            const nextEntry = sourceLines[i + 1]
+            const nextLine = nextEntry.line
+            if (canAlignChordLineWithLyricLine(nextLine)) {
+                const alignedLine = alignChordsToLyricLine(chordLineData, nextLine, sectionBaseOffset || 0)
+                parsedLines.push(toParsedSectionLine(nextEntry, { text: alignedLine.text, chords: alignedLine.chords }))
+                i++
+                continue
+            }
+        }
+
+        parsedLines.push(toParsedSectionLine(currentEntry))
+    }
+
+    return parsedLines
+}
+
+function cloneParsedSectionLine(line: ParsedSectionLine): ParsedSectionLine {
+    return {
+        text: line.text,
+        hidden: line.hidden,
+        chords: copyChords(line.chords, true)
+    }
+}
+
+function appendRepeatedBlock(targetLines: ParsedSectionLine[], repeatConfig: RepeatConfig) {
+    const repeatedBlock = targetLines.slice(repeatConfig.startIndex)
+    for (let repeatIndex = 1; repeatIndex < repeatConfig.count; repeatIndex++) {
+        targetLines.push(...repeatedBlock.map(cloneParsedSectionLine))
+    }
+}
+
+function getWholeSectionRepeatCount(lines: ParsedSectionLine[]): number {
+    let activeRepeatCount: number | null = null
+    let wholeSectionRepeatCount = 1
+    let hasRepeatMarkers = false
+    let hasContentOutsideRepeat = false
+
+    lines.forEach((line) => {
+        if (line.repeatStartCount && activeRepeatCount === null) {
+            activeRepeatCount = line.repeatStartCount
+            wholeSectionRepeatCount = Math.max(wholeSectionRepeatCount, line.repeatStartCount)
+            hasRepeatMarkers = true
+        }
+
+        if (line.text.trim() && !line.hidden && activeRepeatCount === null) {
+            hasContentOutsideRepeat = true
+        }
+
+        if (line.repeatEndCount && activeRepeatCount !== null) {
+            wholeSectionRepeatCount = Math.max(wholeSectionRepeatCount, activeRepeatCount, line.repeatEndCount)
+            activeRepeatCount = null
+        }
+    })
+
+    if (activeRepeatCount !== null) {
+        wholeSectionRepeatCount = Math.max(wholeSectionRepeatCount, activeRepeatCount)
+    }
+
+    return hasRepeatMarkers && !hasContentOutsideRepeat ? wholeSectionRepeatCount : 1
+}
+
+function expandRepeatedSectionLines(lines: ParsedSectionLine[]): ParsedSectionLine[] {
+    const expandedLines: ParsedSectionLine[] = []
+    let activeRepeat: RepeatConfig | null = null
+
+    lines.forEach((line) => {
+        const cleanLine: ParsedSectionLine = {
+            text: line.text,
+            hidden: line.hidden,
+            chords: copyChords(line.chords)
+        }
+
+        if (line.repeatStartCount && !activeRepeat) {
+            activeRepeat = {
+                count: line.repeatStartCount,
+                startIndex: expandedLines.length + (line.hidden ? 1 : 0)
+            }
+        }
+
+        expandedLines.push(cleanLine)
+
+        if (line.repeatEndCount && activeRepeat) {
+            const endIndex = expandedLines.length - (line.hidden ? 1 : 0)
+            const repeatedBlock = expandedLines.slice(activeRepeat.startIndex, endIndex)
+            const repeatCount = Math.max(activeRepeat.count, line.repeatEndCount)
+
+            for (let repeatIndex = 1; repeatIndex < repeatCount; repeatIndex++) {
+                expandedLines.push(...repeatedBlock.map(cloneParsedSectionLine))
+            }
+
+            activeRepeat = null
+        }
+    })
+
+    if (activeRepeat !== null) appendRepeatedBlock(expandedLines, activeRepeat)
+
+    return expandedLines.filter((line) => !line.hidden)
+}
+
+// don't parse generic item "html_details" with custom chords/groups
+function parsePlainTextLines(text: string): ParsedSectionLine[] {
+    return text.split(/\r?\n/).map((line) => ({ text: line.trim() }))
+}
+
+function htmlDetailsToSections(html: string): SongSection[] {
+    if (!html) return []
+
+    // change <br> into newline chars, and remove all HTML tags
+    let text = html.replace(/<br\s*\/?>/gi, "\n").replace(/<[^>]+>/g, "")
+
+    // OpenLP users typically included [===] to mark new slides, we use empty lines
+    text = text.replace(/^\s*\[=+\]/gm, "")
+
+    const sections = parseChordChartIntoSections(text)
+    if (sections.length) return sections
+
+    return text
+        .split(/\n{2,}/)
+        .map((b) => b.trim())
+        .filter(Boolean)
+        .map((lyrics) => ({ label: "", lyrics }))
+}
+
+function processRegularItem(item: ProjectItem) {
+    const showId = `pcosong_${item.id}`
+    const sections = item.attributes.html_details ? htmlDetailsToSections(item.attributes.html_details) : []
+    const show = getShow(item, {}, sections, "generic")
+
+    return {
+        show: { id: showId, ...show },
+        projectItem: { type: "show", id: showId, scheduleLength: item.attributes.length }
+    }
+}
+
+async function processMediaItem(item: ProjectItem, itemsEndpoint: string, serviceType: ServiceType) {
+    const mediaEndpoint = `${itemsEndpoint}/${item.id}/media`
+    const media = (await pcoRequest({ scope: "services", endpoint: mediaEndpoint }))[0]
+    if (!media?.id) return null
+
+    const attachment = (await pcoRequest({ scope: "services", endpoint: `media/${media.id}/attachments` }))[0]
+    if (!attachment?.id) return null
+
+    const downloadUrl = await getMediaStreamUrl(`attachments/${attachment.id}/open`)
+
+    const mediaFolderPath = getDataFolderPath("planningcenter", serviceType.attributes.name)
+    const filePath = path.join(mediaFolderPath, attachment.attributes.filename)
+
+    return {
+        projectItem: {
+            name: media.attributes.title,
+            scheduleLength: item.attributes.length,
+            type: media.attributes.length ? "video" : "image",
+            id: filePath
+        },
+        downloadableMedia: {
+            name: serviceType.attributes.name,
+            type: "planningcenter",
+            files: [{ name: attachment.attributes.filename, url: downloadUrl }]
+        } as LessonsData
+    }
+}
+
+function processHeaderItem(item: ProjectItem) {
+    return {
+        projectItem: {
+            type: "section",
+            id: uid(5),
+            name: item.attributes.title || "",
+            scheduleLength: item.attributes.length,
+            notes: item.attributes.description || ""
+        }
+    }
+}
+
+function createProjectData(plan: Plan, serviceType: ServiceType, projectItems: ProjectItem[]) {
+    return {
+        id: plan.id,
+        name: plan.attributes.title || getDateTitle(plan.attributes.sort_date),
+        scheduledTo: new Date(plan.attributes.sort_date).getTime(),
+        created: new Date(plan.attributes.created_at).getTime(),
+        folderId: serviceType.id || "",
+        folderName: serviceType.attributes.name || "",
+        items: projectItems
+    }
+}
+
+function getDateTitle(dateString: string) {
+    const date = new Date(dateString)
+    return date.toISOString().slice(0, 10)
+}
+
+const itemStyle = "left:50px;top:120px;width:1820px;height:840px;"
+
+function getShow(SONG_DATA: any, SONG: any, SECTIONS: any[], type: string = "") {
+    const slides: { [key: string]: Slide } = {}
+    const layoutSlides: SlideData[] = []
+    SECTIONS.forEach((section) => {
+        const sectionLines = type === "generic" ? parsePlainTextLines(section.lyrics || "") : parseSectionLines(section.lyrics || "")
+        const wholeSectionRepeatCount = getWholeSectionRepeatCount(sectionLines)
+        const parsedLines = wholeSectionRepeatCount > 1 ? sectionLines.filter((line) => !line.hidden) : expandRepeatedSectionLines(sectionLines)
+
+        // Skip sections with no lyrics content
+        if (!parsedLines.some((line) => line.text.trim())) return
+
+        for (let repeatIndex = 0; repeatIndex < wholeSectionRepeatCount; repeatIndex++) {
+            const slideId = uid()
+
+            const items = [
+                {
+                    style: itemStyle,
+                    lines: parsedLines.map((line) => {
+                        const parsedLine: { align: string; text: { style: string; value: string }[]; chords?: Chords[] } = {
+                            align: "",
+                            text: [{ style: "", value: line.text }]
+                        }
+                        if (line.chords?.length) parsedLine.chords = line.chords
+                        return parsedLine
+                    })
+                }
+            ]
+
+            slides[slideId] = {
+                group: section.label,
+                globalGroup: section.label.toLowerCase(),
+                color: null,
+                settings: {},
+                notes: "",
+                items
+            }
+            layoutSlides.push({ id: slideId })
+        }
+    })
+
+    const title = SONG_DATA.attributes.title || ""
+
+    const metadata = {
+        title,
+        author: SONG_DATA.attributes.author || "",
+        publisher: SONG.name || "",
+        copyright: SONG_DATA.attributes.copyright || "",
+        CCLI: SONG_DATA.attributes.ccli_number || "",
+        key: SONG.chord_chart_key || "",
+        BPM: SONG.bpm || ""
+    }
+
+    const layoutId = uid()
+
+    const show: Show = {
+        name: title,
+        category: `planning_center${type ? `_${type}` : ""}`,
+        timestamps: { created: new Date(SONG.created_at).getTime() || Date.now(), modified: new Date(SONG.updated_at).getTime() || null, used: null },
+        meta: metadata,
+        settings: {
+            activeLayout: layoutId,
+            template: null
+        },
+        layouts: {
+            [layoutId]: {
+                name: "Default",
+                notes: SONG.notes || "",
+                slides: layoutSlides
+            }
+        },
+        slides,
+        media: {}
+    }
+
+    return show
+}
+
+async function getMediaStreamUrl(endpoint: string): Promise<string> {
+    const PCO_ACCESS = await pcoConnect("services")
+    if (!PCO_ACCESS) return ""
+
+    const apiPath = `/services/v${PCO_API_version}/${endpoint}`
+    const headers = { Authorization: `Bearer ${PCO_ACCESS.access_token}` }
+
+    return new Promise((resolve) => {
+        httpsRequest(PCO_API_URL, apiPath, "POST", headers, {}, (err, result) => {
+            if (err) {
+                console.error("Could not get media stream URL:", err)
+                return resolve("")
+            }
+
+            resolve(result.data.attributes.attachment_url)
+        })
+    })
+}

@@ -1,0 +1,335 @@
+<script lang="ts">
+    import type { MediaStyle } from "../../../../types/Main"
+    import type { BibleContent } from "../../../../types/Scripture"
+    import type { Item } from "../../../../types/Show"
+    import { activeEdit, activePage, activeScripture, activeStyle, drawerTabsData, media, outputs, scriptureSettings, settingsTab, styles, templates } from "../../../stores"
+    import { setDefaultScriptureTemplates } from "../../../utils/createData"
+    import { confirmCustom } from "../../../utils/popup"
+    import { mediaExtensions } from "../../../values/extensions"
+    import T from "../../helpers/T.svelte"
+    import { clone } from "../../helpers/array"
+    import { history } from "../../helpers/history"
+    import { getMediaStyle } from "../../helpers/media"
+    import { getAllNormalOutputs, getFirstActiveOutput } from "../../helpers/output"
+    import InputRow from "../../input/InputRow.svelte"
+    import Link from "../../inputs/Link.svelte"
+    import MaterialButton from "../../inputs/MaterialButton.svelte"
+    import MaterialColorInput from "../../inputs/MaterialColorInput.svelte"
+    import MaterialFilePicker from "../../inputs/MaterialFilePicker.svelte"
+    import MaterialNumberInput from "../../inputs/MaterialNumberInput.svelte"
+    import MaterialPopupButton from "../../inputs/MaterialPopupButton.svelte"
+    import MaterialToggleSwitch from "../../inputs/MaterialToggleSwitch.svelte"
+    import Media from "../../output/layers/Media.svelte"
+    import Textbox from "../../slide/Textbox.svelte"
+    import Zoomed from "../../slide/Zoomed.svelte"
+    import { displayScriptureGesture } from "../bible/scriptureGesture"
+    import { playScripture } from "../bible/scripture"
+    import { createScriptureShow, getActiveScripturesContent, getMergedAttribution, getScriptureSlidesNew, textKeys, useOldScriptureSystem } from "../bible/scripture"
+
+    export let optionsOpen: boolean
+    let biblesContent: BibleContent[] = []
+    let selectedChapters: number[] = []
+    let selectedVerses: (number | string)[][] = []
+
+    $: activeScriptureId = $drawerTabsData.scripture?.activeSubTab || ""
+
+    $: if (activeScriptureId || $activeScripture.reference) loadScriptureData()
+    async function loadScriptureData() {
+        const content = await getActiveScripturesContent()
+        if (content?.length) {
+            biblesContent = content
+            selectedChapters = biblesContent[0]?.chapters || []
+            selectedVerses = biblesContent[0]?.activeVerses || []
+        }
+    }
+
+    let slides: Item[][] = [[]]
+
+    // background
+    $: templateId = styleScriptureTemplate || $scriptureSettings.template || "scripture" // $styles[styleId]?.templateScripture || ""
+    $: template = $templates[templateId] || {}
+    $: templateBackground = template.settings?.backgroundPath
+
+    // auto change template based on number of bibles (if default)
+    // if collection, but only one of the Bibles load, biblesContent will be length 1 & not change the template, which is fine, but maybe confusing
+    $: if (activeScriptureId || templateId || biblesContent.length) setTimeout(checkTemplate, 100)
+    $: isDefault = typeof templateId === "string" ? templateId.includes("scripture") && !templateId.includes("LT") : false
+    function checkTemplate() {
+        if (!isDefault || !biblesContent.length) return
+
+        let newTemplateId = "scripture_" + biblesContent.length
+        scriptureSettings.update((a) => {
+            a.template = $templates[newTemplateId] ? newTemplateId : "scripture"
+            return a
+        })
+    }
+
+    $: {
+        if (selectedVerses.length || $scriptureSettings) getSlides({ biblesContent, selectedChapters, selectedVerses })
+        else slides = [[]]
+    }
+    async function getSlides(data: any) {
+        slides = (await getScriptureSlidesNew(data, true)).slides
+    }
+
+    $: showVersion = biblesContent.find((a) => a?.attributionRequired) || $scriptureSettings.showVersion
+
+    function update(id: string, value: any) {
+        scriptureSettings.update((a) => {
+            a[id] = value
+            return a
+        })
+
+        if (Object.keys(textKeys).includes(id)) updateCustomText(id, value)
+
+        if (id === "splitLongVerses") longVersesMenuOpened = value
+        else if (id === "showVerse" || id === "showVersion") referenceMenuOpened = showVersion || $scriptureSettings.showVerse ? (value ? true : referenceMenuOpened) : false
+    }
+
+    // custom text
+    $: customText = $scriptureSettings.customText || getDefaultText()
+    function getDefaultText() {
+        let text = ""
+
+        Object.keys(textKeys).forEach((key) => {
+            let isEnabled = $scriptureSettings[key]
+            if (key === "showVersion" && biblesContent.find((a) => a?.attributionRequired)) isEnabled = true
+            if (isEnabled) {
+                if (text.length) text += "\n"
+                text += textKeys[key]
+            }
+        })
+
+        update("customText", text)
+
+        return text
+    }
+    function updateCustomText(id: string, value: boolean) {
+        let key = textKeys[id]
+
+        if (value) {
+            if (customText.includes(key)) return
+
+            if (customText.length && !customText.includes("\n")) customText += "\n"
+            customText += key
+            update("customText", customText)
+
+            return
+        }
+
+        customText = customText.replaceAll(key, "")
+        if (!customText.split("\n")[0] && customText.length) customText = customText.replaceAll("\n", "")
+        update("customText", customText)
+    }
+
+    function editTemplate() {
+        if (styleScriptureTemplate) {
+            activeStyle.set(styleId)
+            settingsTab.set("styles")
+            activePage.set("settings")
+            return
+        }
+
+        // activeDrawerTab.set("templates")
+        // closeDrawer()
+        // drawerTabsData.update(a => {
+        //     a.template.activeSubTab = "all"
+        //     return a
+        // })
+        activeEdit.set({ type: "template", id: templateId, items: [] })
+        activePage.set("edit")
+    }
+
+    $: containsJesusWords = Object.values(biblesContent?.[0]?.verses?.[0] || {})?.find((text: any) => text?.includes('<span class="wj"') || text?.includes("<red") || text?.includes("color:red;") || text?.includes("!{"))
+
+    $: previousSlides = "{}"
+    let currentOutputSlides: any[] = []
+    $: if (slides?.[0] && JSON.stringify(slides[0]) !== previousSlides) {
+        currentOutputSlides = slides[0]
+        previousSlides = JSON.stringify(slides[0])
+    }
+
+    $: styleId = getFirstActiveOutput($outputs)?.style || ""
+    $: outputStyle = $styles[styleId]
+    $: background = $templates[templateId]?.settings?.backgroundColor || outputStyle?.background || "#000000"
+
+    $: attributionString = getMergedAttribution(biblesContent)
+
+    let longVersesMenuOpened = false
+    let referenceMenuOpened = false
+
+    $: onlyOneNormalOutput = getAllNormalOutputs().length === 1
+    $: styleScriptureTemplate = onlyOneNormalOutput ? $styles[styleId]?.templateScripture || "" : ""
+
+    // auto convert
+    $: if (useOldSystem && usingDefault && (!styleScriptureTemplate || styleScriptureTemplate.includes("scripture"))) convertToNew()
+    $: useOldSystem = useOldScriptureSystem(templateId, $templates) && !styleScriptureTemplate
+    $: usingDefault = typeof templateId === "string" ? templateId.includes("scripture") : false
+    async function convertToNew() {
+        if (!usingDefault) {
+            if (!(await confirmCustom("This will apply the default template, and convert that to the new format. Your current template will not change.<br>You can use it as an example to adapt your existing templates. Continue?"))) return
+        }
+
+        setDefaultScriptureTemplates()
+        update("template", "scripture")
+        useOldSystem = false
+    }
+
+    function setTemplateSettings(key: string, value: any) {
+        if (!templateId) return
+
+        let settings = template.settings || {}
+        settings[key] = value
+
+        let newData = { key: "settings", data: clone(settings) }
+
+        history({ id: "UPDATE", newData, oldData: { id: templateId }, location: { page: "edit", id: "template_settings", override: templateId } })
+    }
+
+    // get styling
+    $: bgPath = templateBackground
+    let mediaStyle: MediaStyle = {}
+    $: if (bgPath) mediaStyle = getMediaStyle($media[bgPath], outputStyle)
+</script>
+
+<!-- scripture is for focusedArea -->
+<div class="scroll split scripture" style="padding-bottom: 46px;">
+    <div role="button" tabindex="0" aria-label="Display Scripture preview" title="Double-click to display Scripture"
+        on:dblclick={(event) => displayScriptureGesture("dblclick", event.ctrlKey || event.metaKey || event.shiftKey) && playScripture()}
+        on:keydown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); playScripture() } }}>
+    <Zoomed style="width: 100%;" {background}>
+        {#if selectedVerses.length}
+            {#if bgPath}
+                <Media path={bgPath} {mediaStyle} videoData={{ paused: false, muted: true, loop: true }} mirror />
+            {/if}
+
+            {#key currentOutputSlides}
+                {#each currentOutputSlides as item}
+                    <Textbox {item} {outputStyle} ref={{ id: "scripture" }} />
+                {/each}
+            {/key}
+
+            {#if attributionString}
+                <p class="attributionString">{attributionString.slice(0, 135)}</p>
+            {/if}
+        {/if}
+    </Zoomed>
+    </div>
+
+    <!-- settings -->
+    <p style="font-size:0.8em;opacity:0.65;margin:6px 8px;">Double-click to display</p>
+    <div class="settings border">
+        {#if optionsOpen}
+            <!-- Verse numbers -->
+            <MaterialToggleSwitch label="scripture.verse_numbers" style="width: 100%;" checked={$scriptureSettings.verseNumbers} on:change={(e) => update("verseNumbers", e.detail)} />
+            <!-- DEPRECATED -->
+            <!-- <MaterialColorInput label="edit.color" value={$scriptureSettings.numberColor || "#919191"} defaultValue="#919191" on:change={(e) => update("numberColor", e.detail)} />
+                <MaterialNumberInput label="edit.size (%)" value={$scriptureSettings.numberSize || 50} defaultValue={50} on:change={(e) => update("numberSize", e.detail)} /> -->
+
+            <!-- {#if $scriptureSettings.versesOnIndividualLines || sorted.length > 1} -->
+            <MaterialToggleSwitch label="scripture.verses_on_individual_lines" checked={$scriptureSettings.versesOnIndividualLines} defaultValue={false} on:change={(e) => update("versesOnIndividualLines", e.detail)} />
+            <!-- {/if} -->
+
+            <!-- Long verses -->
+            <InputRow arrow={$scriptureSettings.splitLongVerses} bind:open={longVersesMenuOpened}>
+                <MaterialToggleSwitch label="scripture.divide_long_verses" style="width: 100%;" checked={$scriptureSettings.splitLongVerses} defaultValue={false} on:change={(e) => update("splitLongVerses", e.detail)} />
+
+                <svelte:fragment slot="menu">
+                    {#if $scriptureSettings.splitLongVerses}
+                        <MaterialToggleSwitch label="scripture.split_long_verses_suffix" checked={$scriptureSettings.splitLongVersesSuffix} defaultValue={false} on:change={(e) => update("splitLongVersesSuffix", e.detail)} />
+                        <!-- we allow as low as 3 because of certain languages like Chinese -->
+                        <MaterialNumberInput label="edit.size" value={$scriptureSettings.longVersesChars || 100} defaultValue={100} min={3} on:change={(e) => update("longVersesChars", e.detail)} />
+                        <MaterialNumberInput label="scripture.tolerance" value={$scriptureSettings.longVersesTolerance || 0} defaultValue={0} min={0} max={100} on:change={(e) => update("longVersesTolerance", e.detail)} />
+                    {/if}
+                </svelte:fragment>
+            </InputRow>
+
+            <!-- Red Jesus -->
+            {#if $scriptureSettings.redJesus || containsJesusWords}
+                <MaterialToggleSwitch label="scripture.red_jesus" style="width: 100%;" checked={$scriptureSettings.redJesus} defaultValue={false} on:change={(e) => update("redJesus", e.detail)} />
+                <!-- DEPRECATED -->
+                <MaterialColorInput label="edit.color" value={$scriptureSettings.jesusColor || "#FF4136"} defaultValue="#FF4136" on:change={(e) => update("jesusColor", e.detail)} />
+            {/if}
+
+            <!-- Smart split -->
+            <MaterialToggleSwitch label="scripture.smart_split" style="margin-top: 10px;width: 100%;" checked={$scriptureSettings.smartSplit !== false} defaultValue={true} on:change={(e) => update("smartSplit", e.detail)} />
+
+            {#if $scriptureSettings.smartSplit === false}
+                <MaterialNumberInput label="scripture.max_verses" value={$scriptureSettings.versesPerSlide} defaultValue={3} min={1} max={100} on:change={(e) => update("versesPerSlide", e.detail)} hideWhenZero />
+            {/if}
+        {:else}
+            <!-- Template -->
+            <InputRow style={templateBackground ? "" : "margin-bottom: 10px;"}>
+                <MaterialPopupButton id="scripture_drawer" label="info.template" disabled={!!styleScriptureTemplate} value={templateId} name={template?.name} popupId="select_template" icon="templates" on:change={(e) => update("template", e.detail)} allowEmpty={!isDefault} />
+                {#if (templateId && template) || styleScriptureTemplate}
+                    <MaterialButton title="titlebar.edit" icon="edit" on:click={editTemplate} />
+                {/if}
+            </InputRow>
+
+            <!-- Template Settings - Quick Edit -->
+            {#if templateBackground}
+                <InputRow style="margin-bottom: 10px;border-left: 4px solid var(--primary-lighter);">
+                    <MaterialFilePicker label="edit.background_media" value={templateBackground} filter={{ name: "Media files", extensions: mediaExtensions }} on:change={(e) => setTemplateSettings("backgroundPath", e.detail)} />
+                </InputRow>
+            {/if}
+
+            {#if useOldSystem || (styleScriptureTemplate ? useOldScriptureSystem(styleScriptureTemplate) : false)}
+                <p style="margin-bottom: 10px;font-size: 0.9rem;opacity: 0.7;white-space: normal;">
+                    You are using a template with no scripture values! - <Link url="https://freeshow.app/docs/scripture#template">Read more</Link>
+                </p>
+            {/if}
+            {#if useOldSystem}
+                <MaterialButton variant="outlined" style="margin-bottom: 10px;" on:click={convertToNew}>
+                    {#if usingDefault}
+                        Convert template to new system
+                    {:else}
+                        Use default template
+                    {/if}
+                </MaterialButton>
+            {/if}
+
+            <!-- info={selectedVerses[0]?.length > 1 ? `${Math.ceil(selectedVerses[0].length / $scriptureSettings.versesPerSlide)}` : ""} -->
+            <MaterialButton variant="outlined" icon="slide" title="new.show_convert [Ctrl+N]" on:click={createScriptureShow}>
+                <T id="new.show_convert" />
+            </MaterialButton>
+        {/if}
+    </div>
+</div>
+
+<style>
+    .scroll {
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        overflow-y: auto;
+        overflow-x: hidden;
+    }
+
+    div.scroll :global(.zoomed) {
+        height: initial !important;
+    }
+
+    .settings {
+        display: flex;
+        flex-direction: column;
+        padding: 10px;
+        flex: 1;
+    }
+
+    .settings :global(.dropdown) {
+        /* position: absolute; */
+        width: 160%;
+        inset-inline-end: 0;
+    }
+
+    .attributionString {
+        position: absolute;
+        bottom: 15px;
+        left: 50%;
+        transform: translateX(-50%);
+
+        font-size: 28px;
+        font-style: italic;
+        opacity: 0.7;
+    }
+</style>

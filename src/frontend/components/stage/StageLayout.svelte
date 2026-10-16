@@ -1,0 +1,225 @@
+<script lang="ts">
+    import { onDestroy, setContext } from "svelte"
+    import { activePage, activeStage, allOutputs, currentOutputSettings, outputs, settingsTab, stageShows, toggleOutputEnabled } from "../../stores"
+    import { getAccess } from "../../utils/profile"
+    import ItemAddMenu from "../edit/ItemAddMenu.svelte"
+    import { getSortedStageItems, shouldItemBeShown } from "../edit/scripts/itemHelpers"
+    import { centerZoom } from "../edit/scripts/zoom"
+    import { history } from "../helpers/history"
+    import Icon from "../helpers/Icon.svelte"
+    import { enableStageOutput, getStageOutputId, getStageResolution } from "../helpers/output"
+    import { getStyles } from "../helpers/style"
+    import T from "../helpers/T.svelte"
+    import FloatingInputs from "../input/FloatingInputs.svelte"
+    import MaterialButton from "../inputs/MaterialButton.svelte"
+    import MaterialZoom from "../inputs/MaterialZoom.svelte"
+    import { getStyleResolution } from "../slide/getStyleResolution"
+    import Zoomed from "../slide/Zoomed.svelte"
+    import Center from "../system/Center.svelte"
+    import DropArea from "../system/DropArea.svelte"
+    import Snaplines from "../system/Snaplines.svelte"
+    import { getSlideTextItems, stageItemToItem, updateStageShow } from "./stage"
+    import Stagebox from "./Stagebox.svelte"
+
+    export let outputId = ""
+    export let stageId = ""
+    export let preview = false
+    export let edit = true
+    export let disableStagePreview = false
+
+    const profile = getAccess("stage")
+    $: readOnly = profile.global === "read" || profile[stageLayoutId || ""] === "read" || profile[stageLayoutId || ""] === "none"
+
+    // item flash
+    let layoutMounted = false
+    setContext("layoutMounted", () => layoutMounted)
+    $: if (stageLayoutId) {
+        layoutMounted = false
+        setTimeout(() => {
+            layoutMounted = true
+        }, 100)
+    }
+
+    let lines: [string, number][] = []
+    let mouse: any = null
+    let newStyles: { [key: string]: number | string } = {}
+    $: active = $activeStage.items
+
+    let lastActiveIds = ""
+    $: if (active.join(",") !== lastActiveIds) {
+        newStyles = {}
+        lastActiveIds = active.join(",")
+    }
+
+    let ratio = 1
+
+    $: {
+        if (active.length) {
+            if (Object.keys(newStyles).length) setStyles()
+        } else newStyles = {}
+    }
+
+    function setStyles() {
+        let items = $stageShows[$activeStage.id!].items
+        let newData: { [key: string]: string } = {}
+
+        active.forEach((id) => {
+            let styles = getStyles(items[id].style)
+            const itemNewStyles = (newStyles as any).__multiPositions ? (newStyles as any).__multiPositions[id] || {} : newStyles
+
+            Object.entries(itemNewStyles).forEach(([key, value]) => (styles[key] = (value as any).toString()))
+
+            let textStyles = ""
+            Object.entries(styles).forEach((obj) => (textStyles += obj[0] + ":" + obj[1] + ";"))
+
+            newData[id] = textStyles
+        })
+
+        history({ id: "UPDATE", newData: { data: newData, key: "items", subkey: "style", keys: active }, oldData: { id: $activeStage.id }, location: { page: "stage", id: "stage_item_position", override: $activeStage.id + active.join("") } })
+
+        if (!timeout) {
+            updateStageShow()
+            timeout = setTimeout(() => {
+                updateStageShow()
+                timeout = null
+            }, 500)
+        }
+    }
+
+    let timeout: NodeJS.Timeout | null = null
+
+    $: stageLayoutId = stageId || $activeStage.id
+    $: layout = $stageShows[stageLayoutId || ""] || {}
+
+    // RESOLUTION
+
+    let width = 0
+    let height = 0
+    $: stageOutputId = getStageOutputId($outputs)
+    $: resolution = getStageResolution(stageOutputId, $outputs)
+
+    // ACTION BAR
+
+    // ZOOM
+    let scrollElem: HTMLDivElement | undefined
+    let zoom = 1
+    let zoomOrigin: { x: number; y: number } | null = null
+    function updateZoom(e: any) {
+        zoom = e.detail
+        const origin = zoomOrigin
+        zoomOrigin = null
+        centerZoom(origin, scrollElem, "")
+    }
+
+    $: currentOutput = $outputs[outputId] || $allOutputs[outputId] || {}
+    $: backgroundColor = currentOutput.transparent ? "transparent" : layout.settings?.color || "#000000"
+
+    $: stageItems = getSortedStageItems(stageLayoutId, $stageShows)
+
+    let conditionsUpdater = 0
+    const updaterInterval = setInterval(() => {
+        if (!Array.isArray(stageItems)) return
+        if (stageItems.some((a) => a?.conditions)) conditionsUpdater++
+    }, 500)
+    onDestroy(() => clearInterval(updaterInterval))
+
+    function checkVisibility(itemIndex: number, _updater: any) {
+        const item = stageItems[itemIndex]
+        return shouldItemBeShown(stageItemToItem(item), item.type === "slide_text" ? getSlideTextItems(layout, item, $outputs || $allOutputs) : [], { type: "stage" })
+    }
+
+    // stage output
+
+    $: hasStageOutput = edit && Object.values($outputs).some((a) => a.stageOutput && (a.enabled || a.stageOutput === stageLayoutId))
+    $: isLocked = readOnly
+
+    function createStageOutput() {
+        toggleOutputEnabled.set(true)
+        setTimeout(() => {
+            let id = enableStageOutput({ stageOutput: stageLayoutId, name: layout?.name || "" })
+            currentOutputSettings.set(id)
+            settingsTab.set("display_settings")
+            activePage.set("settings")
+        }, 100)
+    }
+</script>
+
+<div class="stageArea">
+    <div class="parent" class:noOverflow={zoom >= 1} bind:this={scrollElem} bind:offsetWidth={width} bind:offsetHeight={height}>
+        {#if stageLayoutId}
+            {#if edit && !readOnly}
+                <DropArea id="edit" file>
+                    <Zoomed background={backgroundColor} style={getStyleResolution(resolution, width, height, "fit", { zoom })} {resolution} id={stageOutputId} bind:ratio isStage disableStyle hideOverflow={!edit} center>
+                        <Snaplines bind:lines bind:newStyles bind:mouse {ratio} {active} isStage />
+                        {#key stageLayoutId}
+                            {#each stageItems as item, index (item.id)}
+                                {#if (item.type || item.enabled !== false) && (edit || checkVisibility(index, conditionsUpdater))}
+                                    <Stagebox edit stageLayout={edit ? null : layout} id={item.id} {item} {ratio} {preview} {disableStagePreview} bind:mouse />
+                                {/if}
+                            {/each}
+                        {/key}
+                    </Zoomed>
+                </DropArea>
+            {:else}
+                <Zoomed background={backgroundColor} style={getStyleResolution(resolution, width, height, "fit", { zoom })} {resolution} id={stageOutputId} bind:ratio isStage disableStyle hideOverflow={!edit} center>
+                    {#key stageLayoutId}
+                        {#each stageItems as item, index (item.id)}
+                            {#if (item.type || item.enabled !== false) && (edit || checkVisibility(index, conditionsUpdater))}
+                                <Stagebox stageLayout={edit ? null : layout} id={item.id} {item} {ratio} {preview} {disableStagePreview} bind:mouse />
+                            {/if}
+                        {/each}
+                    {/key}
+                </Zoomed>
+            {/if}
+        {:else if edit}
+            <Center size={2} faded>
+                <T id="empty.layout" />
+            </Center>
+        {/if}
+    </div>
+
+    {#if edit && stageLayoutId}
+        <FloatingInputs side="left" onlyOne>
+            {#if !hasStageOutput}
+                <MaterialButton title="stage.create_stage_output" on:click={createStageOutput}>
+                    <Icon id="autofill" gradient />
+                    <T id="stage.create_stage_output" />
+                </MaterialButton>
+            {/if}
+
+            <MaterialZoom hidden={!hasStageOutput} columns={zoom} min={0.2} max={4} defaultValue={1} addValue={0.1} on:change={updateZoom} on:origin={(e) => (zoomOrigin = e.detail)} />
+        </FloatingInputs>
+
+        <ItemAddMenu {isLocked} />
+    {/if}
+</div>
+
+<style>
+    .stageArea {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        position: relative;
+        overflow: hidden;
+    }
+
+    .parent {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        /* padding: 10px; */
+        overflow: auto;
+    }
+
+    .parent.noOverflow {
+        overflow: hidden;
+    }
+
+    /* disable "glitchy" scroll bars */
+    .parent.noOverflow :global(.droparea) {
+        overflow: hidden;
+    }
+</style>

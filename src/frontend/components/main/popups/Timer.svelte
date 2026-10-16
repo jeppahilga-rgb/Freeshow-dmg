@@ -1,0 +1,461 @@
+<script lang="ts">
+    import { onDestroy, onMount } from "svelte"
+    import { uid } from "uid"
+    import type { Timer } from "../../../../types/Show"
+    import { contentProviderData, events, providerConnections, timers, drawerTabsData } from "../../../stores"
+    import { translateText } from "../../../utils/language"
+    import { getDateString } from "../../drawer/calendar/calendar"
+    import { getTimer, getTimerDynamicValue } from "../../drawer/timers/timers"
+    import T from "../../helpers/T.svelte"
+    import { deselect, getSelected } from "../../helpers/select"
+    import { secondsToTime } from "../../helpers/time"
+    import InputRow from "../../input/InputRow.svelte"
+    import MaterialButton from "../../inputs/MaterialButton.svelte"
+    import MaterialColorInput from "../../inputs/MaterialColorInput.svelte"
+    import MaterialDropdown from "../../inputs/MaterialDropdown.svelte"
+    import MaterialMultiChoice from "../../inputs/MaterialMultiChoice.svelte"
+    import MaterialNumberInput from "../../inputs/MaterialNumberInput.svelte"
+    import MaterialTextInput from "../../inputs/MaterialTextInput.svelte"
+    import MaterialToggleSwitch from "../../inputs/MaterialToggleSwitch.svelte"
+
+    let currentTimer = getSelected("timer", 0)
+    let timer: Timer = {
+        type: "counter",
+        name: "",
+        start: 300,
+        end: 0,
+        event: "",
+        time: "12:00"
+    }
+    $: if (currentTimer?.id) {
+        timer = getTimer(currentTimer)
+        deselect()
+    }
+
+    let chosenType = ""
+    $: timerTypes = [
+        { id: "counter", name: translateText("timer.from_to"), translate: true, icon: "timer" },
+        { id: "clock", name: translateText("timer.to_time"), translate: true, icon: "clock" },
+        { id: "event", name: translateText("timer.to_event"), translate: true, icon: "calendar" },
+        // only show when connected to Planning Center
+        ...($providerConnections.planningcenter ? [{ id: "pco_live", name: "PCO Live", icon: "list" }] : [])
+    ]
+
+    // counter
+    $: fromTime = secondsToTime(timer.start === undefined ? 300 : timer.start)
+    $: toTime = secondsToTime(timer.end === undefined ? 0 : timer.end)
+
+    // update today
+    let today = new Date()
+    const interval = setInterval(() => {
+        today = new Date()
+    }, 1000)
+    onDestroy(() => clearInterval(interval))
+
+    // clock
+    let timeCountdown = 0
+    let todayTime = new Date([today.getMonth() + 1, today.getDate(), today.getFullYear(), timer.time].join(" "))
+    $: if (!timer.time) timer.time = "12:00"
+    $: if (timer.time) {
+        todayTime = new Date([today.getMonth() + 1, today.getDate(), today.getFullYear(), timer.time].join(" "))
+        timeCountdown = todayTime.getTime() > today.getTime() ? (todayTime.getTime() - today.getTime()) / 1000 : 0
+    }
+
+    $: timeCountdownTime = secondsToTime(timeCountdown)
+
+    // event
+    let eventList: any[] = []
+    onMount(() => {
+        Object.entries($events).forEach(addEvent)
+        eventList = eventList.sort((a, b) => (new Date(a).getTime() > new Date(b).getTime() ? -1 : 1))
+        if (!timer.event) timer.event = eventList[0]?.id || ""
+    })
+
+    const addEvent = ([id, event]: any) => {
+        if (new Date(event.from).getTime() > today.getTime()) eventList.push({ value: id, label: `${getDateString(new Date(event.from))}: ${event.name}` })
+    }
+
+    function updateTime(e: any) {
+        timer.time = e.target?.value
+    }
+
+    let eventTime: Date
+    let eventCountdown: any = { m: "00", s: "00" }
+    function updateEvent(e: any) {
+        timer.event = e.detail
+    }
+
+    $: if (timer.event && eventList.length) {
+        eventTime = new Date($events[timer.event].from)
+        eventCountdown = secondsToTime(eventTime.getTime() > today.getTime() ? (eventTime.getTime() - today.getTime()) / 1000 : 0)
+    }
+
+    let timerNames: any = {
+        counter: translateText("timer.counter"),
+        clock: translateText("timer.time"),
+        event: translateText("timer.event"),
+        pco_live: "PCO Live"
+    }
+    $: if (timer.event && eventList.length) updateEventName()
+    const updateEventName = () => (timerNames.event = eventList.find((a) => a.id === timer.event)?.name)
+
+    function changeName(e: any) {
+        let newName = e.detail
+
+        if (!newName) {
+            timer.name = ""
+            return
+        }
+
+        // set unique timer name
+        let count = 1
+        while (Object.values($timers).find((a) => a.name === newName + (count > 1 ? ` ${count}` : ""))) {
+            count++
+        }
+        newName = newName + (count > 1 ? ` ${count}` : "")
+
+        timer.name = newName
+    }
+
+    // TODO: history
+
+    // auto save edits
+    $: if (timer && ((!created && currentTimer?.id) || chosenType)) updateTimer()
+
+    let created = false
+    function updateTimer() {
+        let id = currentTimer?.id
+
+        const doesNotExist = !id
+        if (doesNotExist) {
+            // create timer
+            id = uid()
+            created = true
+
+            // set tag
+            if ($drawerTabsData.functions?.activeSubTab === "timer" && $drawerTabsData.functions?.activeSubmenu) {
+                timer.tags = [$drawerTabsData.functions?.activeSubmenu]
+            }
+        }
+
+        timers.update((a) => {
+            a[id] = getNewTimer()
+            return a
+        })
+
+        if (doesNotExist) {
+            currentTimer = { id }
+        }
+    }
+
+    function getNewTimer() {
+        let newTimer: Timer = { name: timer.name, type: timer.type }
+
+        // if (!newTimer.name && timer.type) newTimer.name = timerNames[timer.type] || $dictionary.timer?.counter || "Timer"
+
+        if (timer.id) newTimer.id = timer.id
+        if (timer.tags) newTimer.tags = timer.tags
+        if (timer.type === "event") newTimer.event = timer.event
+        else if (timer.type === "clock") newTimer.time = timer.time || "12:00"
+        else if (timer.type === "pco_live") {
+            newTimer.pco = { serviceTypeId: timer.pco?.serviceTypeId || "", planId: timer.pco?.planId || "", countdownType: timer.pco?.countdownType || "end_on_time" }
+        } else {
+            newTimer.start = timer.start === undefined ? 300 : Number(timer.start)
+            newTimer.end = timer.end === undefined ? 0 : Number(timer.end)
+
+            if (timer.startDynamic) newTimer.startDynamic = timer.startDynamic
+            if (timer.endDynamic) newTimer.endDynamic = timer.endDynamic
+        }
+
+        if (timer.warn) {
+            newTimer.warn = true
+            newTimer.warnOffset = timer.warnOffset || 30
+            newTimer.warnColor = timer.warnColor || "#FF8000"
+            newTimer.warnFlash = !!timer.warnFlash
+        }
+        if (timer.overflow) {
+            newTimer.overflow = true
+            newTimer.overflowColor = timer.overflowColor || "#FF4136"
+            // newTimer.overflowFlash = timer.overflowFlash
+        }
+
+        return newTimer
+    }
+
+    function getMinutes(number: number) {
+        return Math.floor(number / 60)
+    }
+    function getSeconds(number: number) {
+        return number - getMinutes(number) * 60
+    }
+
+    const MAX_MINUTES = 60 * 24 * 30 // 365
+
+    $: warningMenuOpened = false
+    $: overflowMenuOpened = false
+
+    function updateTimerValue(key: string, value: any) {
+        timer[key] = value
+
+        if (key === "warn") warningMenuOpened = !!value
+        else if (key === "overflow") overflowMenuOpened = !!value
+    }
+
+    let showMore = false
+
+    $: dynamicStart = getTimerDynamicValue(timer.startDynamic)
+    $: dynamicEnd = getTimerDynamicValue(timer.endDynamic)
+
+    // PCO Live
+
+    // available plans loaded after PCO sync
+    $: pcoAvailablePlans = ($contentProviderData.planningcenter?.availablePlans || []) as { planId: string; serviceTypeId: string; name: string; date: string }[]
+    $: pcoPlanOptions = [{ value: "|", label: translateText("export.current_project") }, ...pcoAvailablePlans.map((p) => ({ value: p.planId + "|" + p.serviceTypeId, label: p.name, data: new Date(p.date).toLocaleDateString() }))]
+
+    const pcoCountdownTypeOptions = [
+        { value: "end_on_time", label: translateText("timer.end_on_time") },
+        { value: "full_length", label: translateText("timer.full_length") },
+        { value: "end_service", label: translateText("timer.end_service") }
+    ]
+
+    function updatePcoPlan(e: any) {
+        const [planId, serviceTypeId] = (e.detail || "").split("|")
+        timer.pco = { serviceTypeId: serviceTypeId || "", planId: planId || "", countdownType: timer.pco?.countdownType || "end_on_time" }
+    }
+</script>
+
+{#if (!currentTimer?.id || created) && !chosenType}
+    <MaterialMultiChoice options={timerTypes} on:click={(e) => (chosenType = timer.type = e.detail)} />
+{:else}
+    {#if created}
+        <MaterialButton class="popup-back" icon="back" iconSize={1.3} title="actions.back" on:click={() => (chosenType = "")} />
+    {/if}
+
+    <MaterialTextInput label="inputs.name" value={timer.name} on:change={changeName} autoselect={created} />
+
+    {#if timer.type === "counter"}
+        <MaterialButton class="popup-options {showMore ? 'active' : ''}" icon="options" iconSize={1.3} title={showMore ? "actions.close" : "create_show.more_options"} on:click={() => (showMore = !showMore)} white />
+
+        <div style="display: flex;gap: 5px;margin: 20px 0;">
+            <div class="timerbox">
+                <p class="part">
+                    <T id="timer.from" />
+
+                    {#if Number(fromTime.h) > 0 || Number(fromTime.d) > 0}
+                        <span style="font-weight: normal;opacity: 0.6;font-size: 0.9em;">
+                            {#if Number(fromTime.d)}{fromTime.d},
+                            {/if}{#if Number(fromTime.h)}{fromTime.h}:{/if}{fromTime.m}:{fromTime.s}
+                        </span>
+                    {/if}
+                </p>
+
+                <div>
+                    {#if dynamicStart !== null}
+                        <p style="font-size: 2.8em;font-weight: bold;">{dynamicStart}</p>
+                    {:else}
+                        <MaterialNumberInput label="timer.minutes" value={timer.start === undefined ? 5 : getMinutes(timer.start)} padLength={2} max={MAX_MINUTES} on:change={(e) => (timer.start = getSeconds(timer.start || 0) + Number(e.detail) * 60)} />
+                        <span style="padding: 0 10px;font-size: 3em;font-weight: bold;line-height: 1.7;">:</span>
+                        <MaterialNumberInput label="timer.seconds" value={timer.start === undefined ? 0 : getSeconds(timer.start)} padLength={2} max={59} on:change={(e) => (timer.start = getMinutes(timer.start ?? 300) * 60 + Number(e.detail))} />
+                    {/if}
+                </div>
+
+                {#if showMore}
+                    <div style="padding-top: 0;">
+                        <MaterialTextInput label="actions.dynamic_value (s)" value={timer.startDynamic || ""} placeholder={`{$min} * 60`} defaultValue="" style="flex: 1;" on:change={(e) => (timer.startDynamic = e.detail)} />
+                    </div>
+                {/if}
+            </div>
+            <div class="timerbox">
+                <p class="part">
+                    <T id="timer.to" />
+
+                    {#if Number(toTime.h) > 0 || Number(toTime.d) > 0}
+                        <span style="font-weight: normal;opacity: 0.6;font-size: 0.9em;">
+                            {#if Number(toTime.d)}{toTime.d},
+                            {/if}{#if Number(toTime.h)}{toTime.h}:{/if}{toTime.m}:{toTime.s}
+                        </span>
+                    {/if}
+                </p>
+
+                <div>
+                    {#if dynamicEnd !== null}
+                        <p style="font-size: 2.8em;font-weight: bold;">{dynamicEnd}</p>
+                    {:else}
+                        <MaterialNumberInput label="timer.minutes" value={timer.end === undefined ? 5 : getMinutes(timer.end)} padLength={2} max={MAX_MINUTES} on:change={(e) => (timer.end = getSeconds(timer.end || 0) + Number(e.detail) * 60)} />
+                        <span style="padding: 0 10px;font-size: 3em;font-weight: bold;line-height: 1.7;">:</span>
+                        <MaterialNumberInput label="timer.seconds" value={timer.end === undefined ? 0 : getSeconds(timer.end)} padLength={2} max={59} on:change={(e) => (timer.end = getMinutes(timer.end ?? 300) * 60 + Number(e.detail))} />
+                    {/if}
+                </div>
+
+                {#if showMore}
+                    <div style="padding-top: 0;">
+                        <MaterialTextInput label="actions.dynamic_value (s)" value={timer.endDynamic || ""} defaultValue="" style="flex: 1;" on:change={(e) => (timer.endDynamic = e.detail)} />
+                    </div>
+                {/if}
+            </div>
+        </div>
+    {:else if timer.type === "clock"}
+        <div class="timerbox" style="width: 100%;margin: 20px 0;">
+            <p class="part">
+                <T id="timer.clock" />
+
+                {#if Number(timeCountdownTime.m) > 0 || Number(timeCountdownTime.s) > 0}
+                    <span style="font-weight: normal;opacity: 0.6;font-size: 0.9em;">
+                        {#if Number(timeCountdownTime.d)}{timeCountdownTime.d},
+                        {/if}{#if Number(timeCountdownTime.h)}{timeCountdownTime.h}:{/if}{timeCountdownTime.m}:{timeCountdownTime.s}
+                    </span>
+                {/if}
+            </p>
+
+            <div>
+                <!-- <Date value={to} on:change={(e) => (to = e.detail)} />x -->
+                <input type="time" step="2" value={timer.time} on:change={updateTime} />
+            </div>
+        </div>
+    {:else if timer.type === "event"}
+        <div class="timerbox" style="width: 100%;margin: 20px 0;overflow: visible;">
+            <p style="border: none;min-height: unset;border-radius: 8px;" class="part">
+                <T id="timer.to_event" />
+
+                {#if Number(eventCountdown.m) > 0 || Number(eventCountdown.s) > 0}
+                    <span style="border: none;min-width: unset;flex: 0;font-weight: normal;display: flex;align-items: center;padding: 0px 10px;opacity: 0.6;font-size: 0.9em;">
+                        {#if Number(eventCountdown.d)}{eventCountdown.d},
+                        {/if}{#if Number(eventCountdown.h)}{eventCountdown.h}:{/if}{eventCountdown.m}:{eventCountdown.s}
+                    </span>
+                {/if}
+            </p>
+
+            {#if eventList.length}
+                <div>
+                    <MaterialDropdown label="timer.event" style="width: 100%;" options={eventList} value={timer.event || ""} on:change={updateEvent} />
+                </div>
+            {:else}
+                <div style="padding: 10px;display: flex;align-items: center;opacity: 0.5;"><T id="timer.no_events" /></div>
+            {/if}
+        </div>
+    {:else if timer.type === "pco_live"}
+        <div class="timerbox" style="width: 100%;margin: 20px 0;overflow: visible;">
+            <p style="border: none;min-height: unset;border-radius: 8px;" class="part">
+                {translateText("PCO Live timer.counter")}
+            </p>
+
+            <div style="flex-direction: column;">
+                <MaterialDropdown label="clock.type" style="width: 100%;" options={pcoCountdownTypeOptions} value={timer.pco?.countdownType || "end_on_time"} on:change={(e) => (timer.pco = { serviceTypeId: timer.pco?.serviceTypeId ?? "", planId: timer.pco?.planId ?? "", countdownType: e.detail })} />
+
+                {#if !pcoAvailablePlans.length}
+                    <p style="opacity: 0.6;font-size: 0.9em;">No upcoming services found!</p>
+                {:else}
+                    <MaterialDropdown label="formats.project (Service)" style="width: 100%;" options={pcoPlanOptions} value={timer.pco?.planId && timer.pco?.serviceTypeId ? timer.pco.planId + "|" + timer.pco.serviceTypeId : "|"} on:change={updatePcoPlan} />
+                {/if}
+            </div>
+        </div>
+    {/if}
+
+    <InputRow arrow={timer.warn} bind:open={warningMenuOpened}>
+        <MaterialToggleSwitch label="timer.warn_early" style="width: 100%;" checked={timer.warn} defaultValue={false} on:change={(e) => updateTimerValue("warn", e.detail)} />
+
+        <div slot="menu">
+            <MaterialNumberInput label="timer.warn_offset" value={timer.warnOffset || 30} min={1} defaultValue={30} max={Math.abs((timer.start ?? 300) - (timer.end || 0))} on:change={(e) => updateTimerValue("warnOffset", e.detail)} />
+            <MaterialColorInput label="edit.color" value={timer.warnColor || "#FF8000"} defaultValue="#FF8000" on:input={(e) => updateTimerValue("warnColor", e.detail)} />
+            <MaterialToggleSwitch label="timer.flash" checked={timer.warnFlash} defaultValue={false} on:change={(e) => updateTimerValue("warnFlash", e.detail)} />
+        </div>
+    </InputRow>
+
+    <InputRow arrow={timer.overflow} bind:open={overflowMenuOpened}>
+        <MaterialToggleSwitch label="timer.overflow" style="width: 100%;" checked={timer.overflow} defaultValue={false} on:change={(e) => updateTimerValue("overflow", e.detail)} />
+
+        <div slot="menu">
+            <MaterialColorInput label="edit.color" value={timer.overflowColor || "#FF4136"} defaultValue="#FF4136" on:input={(e) => updateTimerValue("overflowColor", e.detail)} />
+            <!-- <MaterialToggleSwitch label="timer.flash" checked={timer.overflowFlash} defaultValue={false} on:change={(e) => updateTimerValue("overflowFlash", e.detail)} /> -->
+        </div>
+    </InputRow>
+{/if}
+
+<style>
+    .timerbox {
+        display: flex;
+        flex-direction: column;
+        width: 50%;
+
+        background-color: var(--primary-darker);
+        border: 1px solid var(--primary-lighter);
+
+        border-radius: 8px;
+        overflow: hidden;
+    }
+    .timerbox div {
+        display: flex;
+        justify-content: center;
+        padding: 15px;
+    }
+
+    .timerbox :global(.textfield.numberfield) {
+        width: 140px;
+        height: 100px;
+    }
+    .timerbox :global(.numberfield input) {
+        width: 140px;
+        height: 100px;
+
+        font-size: 3.5em !important;
+
+        text-align: center;
+        padding-right: 0.5rem !important;
+    }
+
+    .part {
+        width: 100%;
+        padding: 5px 10px;
+        /* justify-content: center; */
+        font-size: 0.8em;
+        font-weight: bold;
+
+        border: none;
+        min-height: unset;
+
+        background-color: var(--primary-darkest);
+        border-bottom: 1px solid var(--primary-lighter);
+
+        display: flex;
+        justify-content: space-between;
+        gap: 5px;
+    }
+
+    /* time input */
+    input[type="time"] {
+        background-color: var(--primary-darkest);
+        border-radius: 4px;
+        color: inherit;
+        font-family: inherit;
+        border: 0;
+
+        transition: opacity 0.2s;
+
+        width: 100%;
+        font-size: 3.5em;
+        padding: 5px 15px;
+
+        cursor: text;
+    }
+
+    input:disabled {
+        opacity: 0.5;
+    }
+
+    input::-webkit-calendar-picker-indicator {
+        cursor: pointer;
+        opacity: 0.8;
+        filter: invert(1);
+
+        font-size: 0.5em;
+    }
+    input::-webkit-calendar-picker-indicator:hover {
+        background-color: rgb(0 0 0 / 0.1);
+    }
+
+    /* WIP this is global regardless of timers */
+    :global(.dropdown) {
+        position: absolute !important;
+        width: 100%;
+    }
+</style>

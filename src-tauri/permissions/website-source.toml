@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-website-source-fullscreen"
+description = "Website source can resize only its own registered fullscreen host"
+commands.allow = ["website_source_fullscreen", "website_source_activity"]

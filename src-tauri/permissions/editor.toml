@@ -1,0 +1,14 @@
+[[permission]]
+identifier = "allow-editor-commands"
+description = "Local editor and output application services."
+commands.allow = ["pdf_export", "capture_slide", "desktop_service", "midi_service", "backend_service", "virtual_camera", "shared_website", "shared_website_frame", "spotify_service", "backup_service", "dropped_files", "import_powerpoint", "document_pdf", "export_library", "library_service", "media_files", "pick_media_files", "local_server_start", "local_server_stop", "local_server_send", "local_server_data", "local_api_return", "network_ips", "remote_start", "remote_send", "remote_stop", "open_url", "rtmp_input_start", "rtmp_input_stop", "rtmp_input_request", "phone_camera_start", "phone_camera_signal", "website_view", "pick_folder", "set_data_folder", "open_folder_path", "read_store", "show_index", "read_show", "save_library", "app_info", "window_action", "output_message", "native_sources", "native_capture_browser", "native_thumbnail", "native_capture_start", "native_capture_frame", "native_capture_stop"]
+
+
+
+
+
+
+
+
+
+

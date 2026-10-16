@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "desktop",
+  "description": "Local FreeShow editor and presentation windows",
+  "windows": ["main", "output-*", "pdf-*"],
+  "permissions": ["core:default", "allow-website-escape", "allow-editor-commands"]
+}

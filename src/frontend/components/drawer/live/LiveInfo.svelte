@@ -1,0 +1,92 @@
+<script lang="ts">
+    import { activeRecording, currentRecordingStream, drawerTabsData, special } from "../../../stores"
+    import Icon from "../../helpers/Icon.svelte"
+    import T from "../../helpers/T.svelte"
+    import Button from "../../inputs/Button.svelte"
+    import MaterialTextInput from "../../inputs/MaterialTextInput.svelte"
+    import { mediaRecorderIsPaused, stopMediaRecorder, toggleMediaRecorder } from "./recorder"
+
+    export let optionsOpen: boolean
+
+    $: active = $drawerTabsData.media?.openedSubSubTab?.inputs || "cameras"
+
+    let videoElem: HTMLVideoElement | undefined
+    $: if (videoElem) {
+        if (videoElem.srcObject !== $currentRecordingStream) {
+            videoElem.srcObject = $currentRecordingStream
+        }
+        if ($currentRecordingStream) {
+            paused = mediaRecorderIsPaused() || false
+        }
+    }
+
+    let paused = false
+    $: paused ? videoElem?.pause() : videoElem?.play()?.catch(() => {})
+
+    function updateSpecial(key: string, value: any) {
+        special.update((a) => {
+            if (!value) delete a[key]
+            else a[key] = value
+            return a
+        })
+    }
+</script>
+
+{#if $activeRecording}
+    <div class="scroll">
+        <video bind:this={videoElem} muted playsinline>
+            <track kind="captions" />
+        </video>
+
+        <Button style="flex: 0" center on:click={() => (paused = toggleMediaRecorder())} dark>
+            <Icon id={paused ? "play" : "pause"} white={paused} size={1.2} right />
+            <T id={paused ? "popup.continue" : "media.pause"} />
+        </Button>
+    </div>
+
+    <div class="bottom">
+        <!-- <FolderPicker style="justify-content: flex-start;overflow: hidden;" title={$dataPath} id="DATA">
+            <Icon id="folder" right />
+            {#if $dataPath}
+                {$dataPath}
+            {:else}
+                <T id="inputs.change_folder" />
+            {/if}
+        </FolderPicker> -->
+
+        <Button on:click={stopMediaRecorder} center dark>
+            <Icon id="export" size={1.2} right />
+            <T id="actions.export_recording" />
+        </Button>
+    </div>
+{:else if active === "screens" || active === "windows"}
+    <div class="scroll" style="padding: 10px;">
+        <T id="empty.recording" />
+    </div>
+{:else if active === "ndi"}
+    {#if optionsOpen}
+        <div class="scroll" style="padding: 10px;">
+            <MaterialTextInput label="inputs.group" title="settings.comma_seperated" value={$special?.ndiInputGroups || ""} placeholder="public" on:change={(e) => updateSpecial("ndiInputGroups", e.detail)} />
+        </div>
+    {/if}
+{/if}
+
+<style>
+    .scroll {
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        overflow-y: auto;
+        overflow-x: hidden;
+    }
+
+    video {
+        background-color: black;
+        aspect-ratio: 16/9;
+    }
+
+    .bottom {
+        display: flex;
+        flex-direction: column;
+    }
+</style>

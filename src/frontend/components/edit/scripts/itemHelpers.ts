@@ -1,0 +1,510 @@
+import { get } from "svelte/store"
+import { uid } from "uid"
+import { OUTPUT } from "../../../../types/Channels"
+import type { Condition, ConditionValue, Item, ItemType, Slide } from "../../../../types/Show"
+import type { StageItem } from "../../../../types/Stage"
+import { AudioMicrophone } from "../../../audio/audioMicrophone"
+import { activeEdit, activeShow, activeStage, activeTimers, allOutputs, audioChannelsData, outputs, outputSlideCache, overlays, refreshEditSlide, showsCache, stageShows, templates, timers, variables } from "../../../stores"
+import { isOutputWindow } from "../../../utils/common"
+import { send } from "../../../utils/request"
+import { addSlideAction } from "../../actions/actions"
+import { createNewTimer, getCurrentTimerValue } from "../../drawer/timers/timers"
+import { clone, keysToID, sortByName } from "../../helpers/array"
+import { history } from "../../helpers/history"
+import { getFirstActiveOutput, getStageOutputId, isOutputBound } from "../../helpers/output"
+import { getLayoutRef } from "../../helpers/show"
+import { dynamicValueText, getVariableValue, replaceDynamicValues } from "../../helpers/showActions"
+import { _show } from "../../helpers/shows"
+import { getStyles, removeText } from "../../helpers/style"
+import { itemBoxes } from "../values/boxes"
+import { getLikelyPosition } from "./autoPosition"
+import { getItemText, setCaret } from "./textStyle"
+
+export const DEFAULT_ITEM_STYLE = "top:88px;left:50px;height:904px;width:1820px;"
+
+function getDefaultStyles(type: ItemType, templateItems: Item[] | null = null) {
+    // Get position styles from template or use default from boxes.ts
+    const positionStyle = templateItems?.find((a) => (a.type || "text") === type)?.style || DEFAULT_ITEM_STYLE
+
+    // Get default styles from boxes configuration
+    const boxDefaults = itemBoxes[type]?.sections?.font?.inputs?.flat() || []
+    let styleString = positionStyle
+
+    // Add default font styles if they exist
+    boxDefaults.forEach((def) => {
+        if (def.type === "toggle" || def.type === "radio") return
+        if (def.key && def.value) {
+            styleString += `${def.key}:${def.value};`
+        }
+    })
+
+    return styleString
+}
+
+export function addItem(type: ItemType, id: string | null = null, options: any = {}, textValue = "", customStyles: { [key: string]: string } | null = null, index = -1) {
+    const activeTemplate: string | null = get(activeShow)?.id ? get(showsCache)[get(activeShow)!.id]?.settings?.template : null
+    const template = activeTemplate ? get(templates)[activeTemplate]?.items : null
+
+    const newData: Item = {
+        style: getDefaultStyles(type, template),
+        type
+    }
+    if (id) newData.id = id
+
+    const currentItems = getEditItems()
+    const itemsCount = currentItems.length
+    if (itemsCount && itemsCount >= (template?.length || 0)) newData.style = getLikelyPosition(currentItems, newData.style)
+
+    // set custom style values (like position)
+    if (customStyles) {
+        const styles = { ...getStyles(newData.style), ...customStyles }
+        newData.style = Object.entries(styles).reduce((acc, [k, v]) => acc + `${k}:${v};`, "")
+    }
+
+    // deselect previous selection & select new item
+    const selectedIndex = index === -1 ? itemsCount : index
+    activeEdit.update((ae) => ({ ...ae, items: [selectedIndex] }))
+
+    if (type === "text") newData.lines = [{ align: template?.[0]?.lines?.[0]?.align || "", text: [{ value: textValue, style: template?.[0]?.lines?.[0]?.text?.[0]?.style || "" }] }]
+    // else if (type === "timer") newData.timer = { id: uid(), name: get(dictionary).timer?.counter || "Counter", type: "counter", start: 300, end: 0 }
+    else if (type === "timer") {
+        const timerId = options.timer?.id || sortByName(keysToID(get(timers)))[0]?.id || createNewTimer()
+        newData.timer = { id: timerId, ...get(timers)[timerId] }
+        if (get(timers)[timerId]?.type === "counter") addSlideAction(get(activeEdit).slide ?? -1, "start_slide_timers")
+    } else if (type === "clock") newData.clock = { type: "digital", dateFormat: "none", showTime: true, seconds: false }
+    else if (type === "weather") {
+        newData.weather = {}
+
+        let style = getStyles(newData.style)
+        style = { ...style, width: "1530px", height: "680px", left: "195px", top: "200px" }
+        let styleString = ""
+        Object.entries(style).forEach(([key, value]) => {
+            styleString += `${key}: ${value};`
+        })
+        newData.style = styleString
+    } else if (type === "media") newData.src = options.src || ""
+    else if (type === "camera") {
+        newData.device = options.device || {
+            id: options.id || "",
+            type: options.type || "camera",
+            name: options.name || "",
+            group: options.group || options.cameraGroup || ""
+        }
+    } else if (type === "variable") newData.variable = { id: "" }
+    else if (type === "slide_tracker") newData.auto = true
+    else if (type === "web") newData.web = { url: "" }
+    else if (type === "qr_code") newData.qr_code = { text: "" }
+    else if (type === "captions") newData.captions = { roomId: "freeshow" + uid(6) }
+    else if (type === "chart") newData.chart = { type: "bar", data: "" }
+    else if (type === "table") {
+        newData.table = {
+            borderColor: "rgba(255,255,255,0.2)",
+            borderWidth: 1,
+            rows: [
+                {
+                    cells: [
+                        { text: "", style: "font-weight: bold; background-color: rgba(255, 255, 255, 0.05);" },
+                        { text: "", style: "font-weight: bold; background-color: rgba(255, 255, 255, 0.05);" },
+                        { text: "", style: "font-weight: bold; background-color: rgba(255, 255, 255, 0.05);" }
+                    ]
+                },
+                { cells: [{ text: "" }, { text: "" }, { text: "" }] },
+                { cells: [{ text: "" }, { text: "" }, { text: "" }] }
+            ]
+        }
+        newData.textFit = "none"
+    }
+    // else if (type === "button") {
+    //     // make square, colored, rounded and center
+    //     let size: number = 300
+    //     let style = getStyles(newData.style)
+    //     let top: string = Number(removeText(style.top)) + Number(removeText(style.height)) / 2 - size / 2 + "px"
+    //     let left: string = Number(removeText(style.left)) + Number(removeText(style.width)) / 2 - size / 2 + "px"
+    //     style = { ...style, top, left, width: size + "px", height: size + "px", "border-radius": "500px", "background-color": "#ff4136" }
+    //     let styleString: string = ""
+    //     Object.entries(style).forEach(([key, value]) => {
+    //         styleString += `${key}: ${value};`
+    //     })
+    //     newData.style = styleString }
+    else if (type === "icon" && options.color) {
+        // make square and center
+        const size = 300
+        let style = getStyles(newData.style)
+        const top: string = Number(removeText(style.top)) + Number(removeText(style.height)) / 2 - size / 2 + "px"
+        const left: string = Number(removeText(style.left)) + Number(removeText(style.width)) / 2 - size / 2 + "px"
+        style = { ...style, top, left, width: size + "px", height: size + "px", color: options.color }
+        let styleString = ""
+        Object.entries(style).forEach(([key, value]) => {
+            styleString += `${key}: ${value};`
+        })
+        newData.style = styleString
+    } else if (type === "icon" && options.path) {
+        newData.customSvg = options.path
+    }
+
+    if (type === "icon" && id === "empty") {
+        newData.style += "background-color: rgba(255, 255, 255, 0.5);"
+    }
+
+    // console.log("NEW ITEM", newData)
+
+    const hData = index === -1 ? newData : [...currentItems.slice(0, index), newData, ...currentItems.slice(index)]
+    const hIndex = index === -1 ? -1 : undefined
+
+    if (!get(activeEdit).id) {
+        const ref = getLayoutRef()
+        const slideId = ref[get(activeEdit).slide!]?.id
+        history({ id: "UPDATE", newData: { data: hData, key: "slides", keys: [slideId], subkey: "items", index: hIndex }, oldData: { id: get(activeShow)?.id }, location: { page: "edit", id: "show_key" } })
+    } else {
+        // overlay, template
+        history({ id: "UPDATE", newData: { data: hData, key: "items", index: hIndex }, oldData: { id: get(activeEdit).id }, location: { page: "edit", id: get(activeEdit).type } })
+    }
+
+    // set caret ready for typing
+    if (type === "text" && textValue === "") {
+        // wait for elem to be created
+        setTimeout(() => {
+            // get item elem
+            const elem = Array.from(document.querySelectorAll(".editItem") || [])
+                .at(selectedIndex)
+                ?.querySelector(".edit")
+            if (elem) (elem as HTMLElement).focus()
+            setCaret(elem, { line: 0, pos: 0 })
+        })
+    }
+}
+
+export function getEditSlide() {
+    const active = get(activeEdit)
+
+    if (active.id) {
+        if (active.type === "overlay") return get(overlays)[active.id]
+        if (active.type === "template") return get(templates)[active.id]
+        return null
+    }
+
+    const ref = getLayoutRef()
+    const editSlideRef = ref?.[active.slide ?? -1]
+    return _show().get("slides")?.[editSlideRef?.id] as Slide
+}
+
+export function getEditItems(onlyActive = false) {
+    const active = get(activeEdit)
+    const selectedItems: number[] = active.items
+
+    const editSlide = clone(getEditSlide())
+    if (!Array.isArray(editSlide?.items)) return []
+
+    let editItems = editSlide!.items
+    if (onlyActive) editItems = editItems.filter((_, i) => selectedItems.includes(i))
+
+    return editItems || []
+}
+
+// rearrange
+export function rearrangeItems(type: string, startIndex: number = get(activeEdit).items[0]) {
+    let items = getEditItems()
+    if (!items?.length) return
+
+    const currentItem = items.splice(startIndex, 1)[0]
+
+    if (type === "forward") startIndex = Math.min(startIndex + 1, items.length)
+    else if (type === "backward") startIndex = Math.max(startIndex - 1, 0)
+    else if (type === "to_front") startIndex = items.length
+    else if (type === "to_back") startIndex = 0
+
+    items = [...items.slice(0, startIndex), currentItem, ...items.slice(startIndex)]
+    if (!items?.length || items.length < 2) return
+
+    if (!get(activeEdit).id) {
+        const ref = getLayoutRef()
+        const slideId = ref[get(activeEdit).slide!]?.id
+        history({ id: "UPDATE", newData: { data: items, key: "slides", dataIsArray: true, keys: [slideId], subkey: "items" }, oldData: { id: get(activeShow)?.id }, location: { page: "edit", id: "show_key", override: "rearrange_items" } })
+    } else {
+        // overlay, template
+        history({ id: "UPDATE", newData: { data: items, key: "items" }, oldData: { id: get(activeEdit).id }, location: { page: "edit", id: get(activeEdit).type, override: "rearrange_items" } })
+    }
+
+    activeEdit.update((a) => {
+        // update selected edit item, because it has changed!
+        // could set to selected: startIndex, but that's confusing because selected is always in front!
+        a.items = []
+        return a
+    })
+
+    refreshEditSlide.set(true)
+}
+
+export function rearrangeStageItems(type: string, itemId: string = get(activeStage).items[0]) {
+    let items = getSortedStageItems()
+    if (!items?.length || !itemId) return
+
+    let startIndex = items.findIndex((a) => a.id === itemId)
+    if (startIndex < 0) return
+
+    const currentItem = items.splice(startIndex, 1)[0]
+
+    if (type === "forward") startIndex = Math.min(startIndex + 1, items.length)
+    else if (type === "backward") startIndex = Math.max(startIndex - 1, 0)
+    else if (type === "to_front") startIndex = items.length
+    else if (type === "to_back") startIndex = 0
+
+    items = [...items.slice(0, startIndex), currentItem, ...items.slice(startIndex)]
+    if (!items?.length || items.length < 2) return
+
+    stageShows.update((a) => {
+        a[get(activeStage).id!].itemOrder = items.map((item) => item.id)
+        a[get(activeStage).id!].modified = Date.now()
+        return a
+    })
+
+    activeStage.update((a) => {
+        a.items = []
+        return a
+    })
+
+    refreshEditSlide.set(true)
+}
+
+export function getSortedStageItems(stageId = get(activeStage).id, _updater: any = null) {
+    if (!stageId) return []
+    const allStageShows = _updater && !_updater.items ? _updater : get(stageShows)
+    const stageShow = (_updater && _updater.items ? _updater : allStageShows?.[stageId]) || null
+    if (!stageShow || !stageShow.items) return []
+
+    const currentItemIds = Object.keys(stageShow.items)
+    let itemOrder = stageShow.itemOrder ? [...stageShow.itemOrder] : currentItemIds
+
+    // remove items not existing anymore
+    itemOrder = itemOrder.filter((id) => currentItemIds.includes(id))
+    // add any new items
+    const newItems = currentItemIds.filter((id) => !itemOrder.includes(id))
+    if (newItems.length) itemOrder.push(...newItems)
+
+    if (!stageShow.itemOrder || newItems.length) {
+        stageShows.update((a) => {
+            if (!a[stageId]) return a
+            a[stageId].itemOrder = itemOrder
+            a[stageId].modified = Date.now()
+            return a
+        })
+    }
+
+    const sortedItems: (StageItem & { id: string })[] = []
+    itemOrder.forEach((itemId) => {
+        const item = stageShow.items[itemId]
+        if (!item) return
+        sortedItems.push({ ...item, id: itemId })
+    })
+
+    return sortedItems
+}
+
+export function updateSortedStageItems() {
+    const stageId = get(activeStage).id || ""
+    stageShows.update((a) => {
+        const stageLayout = a[stageId]
+        if (!stageLayout) return a
+
+        const currentItemIds = Object.keys(stageLayout.items)
+        let itemOrder = stageLayout.itemOrder || currentItemIds
+
+        // remove items not existing anymore
+        itemOrder = itemOrder.filter((id) => currentItemIds.includes(id))
+        // add any new items
+        const newItems = currentItemIds.filter((id) => !itemOrder.includes(id))
+
+        a[stageId].itemOrder = [...itemOrder, ...newItems]
+        a[stageId].modified = Date.now()
+        return a
+    })
+}
+
+export function shouldItemBeShown(item: Item, allItems: Item[] = [], { outputId, type }: any = { type: "default" }, _updater: any = null, preview = false) {
+    if (!item) return false
+
+    const condition = item.conditions?.showItem
+    const hasBindings = !preview && item.bindings?.length && Array.isArray(item.bindings)
+
+    // Fast path: if no conditions and no bindings, item is always visible
+    if (!condition && !hasBindings) return true
+
+    // check bindings
+    if (hasBindings && !isOutputBound(item.bindings, outputId)) return false
+    if (!condition) return true
+
+    if (type === "stage") allItems = getTempItems(item, allItems)
+
+    if (!allItems.length) allItems = [item]
+    const slideItems = allItems.filter((a) => !a?.bindings?.length || (Array.isArray(a.bindings) && isOutputBound(a.bindings, outputId)))
+    const itemsText = slideItems.reduce((value, currentItem) => (value += getItemText(currentItem)), "")
+
+    return isConditionMet(condition, itemsText, type)
+}
+
+// get "temp" items (scripture) if stage
+function getTempItems(item: Item, allItems: Item[]) {
+    const stageOutputId = getStageOutputId(get(outputs))
+    const currentOutput = get(outputs)[stageOutputId] || get(allOutputs)[stageOutputId] || {}
+    const slideOffset = item.type ? Number((item as StageItem).slideOffset || 0) : 0
+    const currentSlide = currentOutput.out?.slide || (slideOffset !== 0 ? get(outputSlideCache)[stageOutputId] || null : null)
+
+    if (currentSlide?.id !== "temp") return allItems
+    return getTempSlides() || []
+
+    function getTempSlides() {
+        if (slideOffset < 0) {
+            const includeLength = (currentSlide.previousSlides || [])?.length
+            return currentSlide.previousSlides?.[includeLength - (slideOffset + 1 + includeLength)]
+        }
+        if (slideOffset > 0) {
+            return currentSlide.nextSlides?.[slideOffset - 1]
+        }
+        return currentSlide.tempItems
+    }
+}
+
+const conditionResultCache = new Map<string, { result: boolean; timestamp: number }>()
+
+export function isConditionMet(condition: Condition | undefined, itemsText: string, type: "default" | "stage", _updater: any = null) {
+    if (!condition) return true
+
+    if (!Array.isArray(condition)) {
+        condition = (condition as any)?.values?.length ? [[[(condition as any).values]]] : []
+    }
+    if (!condition.length) return true
+
+    const cacheKey = `${type}_${itemsText}_${_updater || 0}_${JSON.stringify(condition)}`
+    const cached = conditionResultCache.get(cacheKey)
+    if (cached && Date.now() - cached.timestamp < 200) {
+        return cached.result
+    }
+
+    // remove unused scripture dynamic values ({scripture_X} / {scriptureNUM_X})
+    const regex = /\{scripture(?:\d+)?_[^}]*\}/g
+    if (regex.test(itemsText)) itemsText = itemsText.replace(regex, "").trim()
+
+    // outerOr
+    const conditionMet = !!condition.find((outerAnd) => {
+        return outerAnd.every((innerOr) => {
+            return !!innerOr.find((innerAnd) => {
+                return innerAnd.every((content) => {
+                    return checkConditionValue(content, itemsText, type)
+                })
+            })
+        })
+    })
+
+    if (conditionResultCache.size > 200) conditionResultCache.clear()
+    conditionResultCache.set(cacheKey, { result: conditionMet, timestamp: Date.now() })
+
+    return conditionMet
+}
+
+export function checkConditionValue(cVal: ConditionValue, itemsText: string, type: "default" | "stage", _updater: any = null) {
+    const element = cVal.element || "text"
+    let elementId = cVal.elementId || ""
+    if (element === "timer" && !elementId) elementId = getFirstActiveTimer()
+
+    let operator = cVal.operator || "is"
+    if (element === "timer") operator = cVal.operator || "isRunning"
+
+    const data = cVal.data || "value"
+    let dataValue: string | number = cVal.value ?? ""
+    if (data === "seconds" || (element === "timer" && operator !== "isRunning")) dataValue = (cVal.seconds || 0).toString()
+    // dynamic value text
+    if (dataValue.toString().includes("{")) dataValue = getDynamicValue(dataValue.toString(), type)
+
+    let value = ""
+    if (element === "text") value = itemsText
+    else if (element === "timer") value = getTimerValue(elementId)
+    else if (element === "variable") {
+        const val = _getVariableValue(elementId)
+        if (Array.isArray(val)) value = val[Number(cVal.index ?? 0)]
+        else value = val
+    } else if (element === "dynamicValue") value = getDynamicValue(elementId, type)
+    else if (element === "volume") {
+        const chData = (get(audioChannelsData) || {})[elementId]
+        if (chData && typeof chData.dB === "number") {
+            value = Math.round(chData.dB).toString()
+        } else if (isOutputWindow()) {
+            send(OUTPUT, ["MAIN_REQUEST_VOLUME"], { deviceId: elementId })
+            value = Math.round(AudioMicrophone.getVolume(elementId)).toString()
+        } else {
+            value = "-60"
+        }
+    }
+
+    if (operator === "is") {
+        return value === dataValue
+    } else if (operator === "isNot") {
+        return value !== dataValue
+    } else if (operator === "has") {
+        return value.includes(dataValue)
+    } else if (operator === "hasNot") {
+        return !value.includes(dataValue)
+    } else if (operator === "isRunning") {
+        if (element === "timer") return isTimerRunning(elementId)
+    } else if (operator === "isAbove") {
+        return Number(value) > Number(dataValue)
+    } else if (operator === "isBelow") {
+        return Number(value) < Number(dataValue)
+    }
+
+    return true
+}
+
+export function getFirstActiveTimer() {
+    let firstTimerId = get(activeTimers)[0]?.id
+    if (!firstTimerId) firstTimerId = sortByName(keysToID(get(timers))).find((timer) => timer.type !== "counter")?.id || ""
+
+    return firstTimerId
+}
+
+function getTimerValue(timerId: string) {
+    const timer = get(timers)[timerId]
+    if (!timer) return "0"
+    return getCurrentTimerValue(timer, { id: timerId }, new Date()).toString()
+}
+
+function isTimerRunning(timerId: string) {
+    const timer = get(timers)[timerId]
+    if (!timer) return false
+
+    if (timer.type === "clock" || timer.type === "event") {
+        const value = Number(getTimerValue(timerId))
+        return value > 0
+    }
+
+    return !!get(activeTimers).find((a) => a.id === timerId)
+}
+
+export function _getVariableValue(dynamicId: string) {
+    const variable = get(variables)[dynamicId]
+    if (!variable) {
+        return getVariableValue(dynamicId)
+    }
+
+    if (variable.type === "text") {
+        if (variable.enabled === false) return ""
+        return variable.text || ""
+    } else {
+        return (variable.number ?? 0).toString()
+    }
+}
+
+export function getDynamicValue(id: string, type: "default" | "stage" = "default") {
+    if (typeof id !== "string") return ""
+    const outSlide = getFirstActiveOutput()?.out?.slide
+
+    const ref = {
+        showId: outSlide?.id || get(activeShow)?.id,
+        layoutId: outSlide?.layout || _show().get("settings.activeLayout"),
+        slideIndex: outSlide?.index ?? get(activeEdit).slide ?? -1,
+        type: type === "stage" ? "stage" : get(activeEdit).type || "show_custom",
+        id: get(activeEdit).id
+    }
+
+    const value = replaceDynamicValues(id.includes("{") ? id : dynamicValueText(id), { ...ref })
+    return value
+}

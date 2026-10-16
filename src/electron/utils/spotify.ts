@@ -1,0 +1,246 @@
+import { type ChildProcess, exec, fork } from "child_process"
+import os from "os"
+import type { SpotifyState } from "../../types/Main"
+
+// ----- BRIDGE LOGIC (Windows only) -----
+if (process.env.SPOTIFY_BRIDGE === "true") {
+    let client: any = null
+    let commandQueue = Promise.resolve()
+    let isExecuting = false
+
+    const enqueueNativeCall = (fn: () => void) => {
+        commandQueue = commandQueue
+            .then(async () => {
+                if (!client || isExecuting) return
+                isExecuting = true
+                try {
+                    fn()
+                } finally {
+                    isExecuting = false
+                }
+            })
+            .catch((err) => {
+                isExecuting = false
+                process.send?.({ type: "error", error: err?.message || String(err) })
+            })
+    }
+
+    process.on("message", (msg: any) => {
+        try {
+            if (msg.type === "init") {
+                try {
+                    const isProd = process.env.NODE_ENV === "production" || !/[\\/]electron/.exec(process.execPath)
+                    const mPath = isProd ? require("path").join(process.resourcesPath, "app.asar.unpacked/node_modules/libspotifyctl") : "libspotifyctl"
+                    if (!client) {
+                        client = new (require(mPath).SpotifyClient)()
+                        client.start()
+                    }
+                    process.send?.({ type: "ready" })
+                } catch (e: any) {
+                    let error = e.message
+
+                    if (e.message?.includes("Failed to load shared library")) {
+                        error += "\n\nYou are likely missing the Visual C++ Redistributable. You can download and install it from here: https://aka.ms/vs/17/release/vc_redist.x64.exe"
+                    }
+
+                    process.send?.({ type: "error", error: `Failed to init Spotify Controller: ${error}` })
+                }
+            } else if (msg.type === "getState") {
+                enqueueNativeCall(() => {
+                    if (!client) return
+                    try {
+                        const s = client.latestState()
+                        if (s) {
+                            if (s.albumArt?.length) s.albumArtBase64 = `data:image/jpeg;base64,${s.albumArt.toString("base64")}`
+                            delete s.albumArt
+                        }
+                        process.send?.({ type: "state", state: s })
+                    } catch (err: any) {
+                        process.send?.({ type: "state", state: null })
+                    }
+                })
+            } else if (msg.type === "command") {
+                enqueueNativeCall(() => {
+                    if (!client) return
+                    const { command: c, value: v } = msg
+
+                    try {
+                        if (c === "playpause") {
+                            const s = client.latestState()
+                            if (s) {
+                                if (s.statusName === "PLAYING") client.pause()
+                                else client.play()
+                            }
+                        } else if (c === "next") client.next()
+                        else if (c === "prev") client.previous()
+                        else if (c === "seek") client.seekMs(v * 1000)
+                        else if (c === "setVolume") {
+                            if ("appVolume" in client) client.appVolume = Number(v)
+                            else if (typeof client.setVolume === "function") client.setVolume(v)
+                        } else if (c === "pause") client.pause()
+                    } catch (err: any) {
+                        process.send?.({ type: "error", error: `Command ${c} failed: ${err?.message || String(err)}` })
+                    }
+                })
+            }
+        } catch (e: any) {
+            process.send?.({ type: "error", error: e.message })
+        }
+    })
+
+    const cleanup = () => {
+        if (client) {
+            try {
+                const activeClient = client
+                client = null // Instantly block new enqueueNativeCall tasks
+                if (typeof activeClient.removeAllListeners === "function") {
+                    activeClient.removeAllListeners()
+                }
+                activeClient.stop()
+                activeClient.close()
+            } catch {}
+        }
+    }
+
+    process.on("exit", cleanup)
+    process.on("SIGINT", cleanup)
+    process.on("SIGTERM", cleanup)
+}
+
+// ----- CLIENT LOGIC (Main Process) -----
+const isMac = os.platform() === "darwin"
+const isWin = os.platform() === "win32"
+const isLinux = os.platform() === "linux"
+let bridge: ChildProcess | null = null
+let initialized = false
+let pending: ((s: SpotifyState | null) => void) | null = null
+
+export function initSpotify() {
+    if (initialized || !isWin) return
+    initialized = true
+    try {
+        bridge = fork(__filename, [], { env: { ...process.env, SPOTIFY_BRIDGE: "true" }, stdio: ["ignore", "inherit", "inherit", "ipc"] })
+        bridge
+            .on("message", (msg: any) => {
+                if (msg.type === "state" && pending) {
+                    const r = msg.state
+                    pending(r?.title ? { isPlaying: r.statusName === "PLAYING", title: r.title, artist: r.artist, albumArt: r.albumArtBase64, positionSec: (r.positionMs || 0) / 1000, durationSec: (r.durationMs || 0) / 1000, volume: r.appVolume ?? 1, platform: "win32" } : null)
+                    pending = null
+                } else if (msg.type === "error") console.error("[Spotify] Bridge error:", msg.error)
+            })
+            .on("exit", () => {
+                initialized = false
+                bridge = null
+            })
+            .send({ type: "init" })
+    } catch (e) {
+        console.error("[Spotify] Failed to start bridge:", e)
+    }
+}
+
+const macScript = (c?: string) => `if application "Spotify" is running then
+    tell application "Spotify"
+        ${
+            c ||
+            `set isP to player state is playing
+        set t to name of current track
+        set a to artist of current track
+        set d to (duration of current track) / 1000
+        set p to player position
+        set art to ""
+        try
+            set art to artwork url of current track
+        end try
+        set v to sound volume
+        return (isP as text) & "|SEC|" & t & "|SEC|" & a & "|SEC|" & p & "|SEC|" & d & "|SEC|" & art & "|SEC|" & v`
+        }
+    end tell
+else
+    return "NOT_RUNNING"
+end if`
+
+export async function getSpotifyState(): Promise<SpotifyState | null> {
+    try {
+        if (isMac)
+            return new Promise((res) =>
+                exec(`osascript -e '${macScript().replace(/'/g, "'\\''")}'`, (e, out) => {
+                    if (e && !out?.includes("NOT_RUNNING") && !e.message?.includes("syntax error") && !e.message?.includes("2741")) console.error("[Spotify] Mac error:", e)
+                    const p = out?.trim().split("|SEC|")
+                    res(e || out?.includes("NOT_RUNNING") || !p || p.length < 5 ? null : { isPlaying: p[0] === "true", title: p[1], artist: p[2], positionSec: parseFloat(p[3]) || 0, durationSec: parseFloat(p[4]) || 0, albumArt: p[5] || undefined, volume: (parseInt(p[6]) || 0) / 100, platform: "darwin" })
+                })
+            )
+        if (isWin) {
+            if (!initialized) initSpotify()
+            if (!bridge?.connected) return null
+            return new Promise((res) => {
+                pending?.(null)
+                pending = res
+                bridge?.send({ type: "getState" })
+                setTimeout(() => pending === res && (pending(null), (pending = null)), 500)
+            })
+        }
+        if (isLinux) {
+            return new Promise((res) => {
+                const dbus = "dbus-send --print-reply --dest=org.mpris.MediaPlayer2.spotify /org/mpris/MediaPlayer2 org.freedesktop.DBus.Properties.Get string:'org.mpris.MediaPlayer2.Player'"
+                exec(`${dbus} string:'Metadata' && ${dbus} string:'PlaybackStatus' && ${dbus} string:'Position' && ${dbus} string:'Volume'`, (e, out) => {
+                    if (e) {
+                        const isServiceUnknown = e.message?.includes("org.freedesktop.DBus.Error.ServiceUnknown") || e.message?.includes("ServiceUnknown")
+                        if (!isServiceUnknown) console.error("[Spotify] Linux error:", e)
+                        return res(null)
+                    }
+                    const title = out.match(/string\s+"xesam:title"\s+variant\s+string\s+"([^"]+)"/)?.[1]
+                    const artist = out.match(/string\s+"xesam:artist"\s+variant\s+array\s+\[\s+string\s+"([^"]+)"/)?.[1]
+                    const len = parseInt(out.match(/string\s+"mpris:length"\s+variant\s+uint64\s+(\d+)/)?.[1] || "0")
+                    const art = out.match(/string\s+"mpris:artUrl"\s+variant\s+string\s+"([^"]+)"/)?.[1]
+                    const pos = parseInt(out.match(/\bint64\s+(\d+)/)?.[1] || "0")
+                    const vol = parseFloat(out.match(/double\s+([\d.]+)/)?.[1] || "1")
+                    res(title ? { isPlaying: out.includes("Playing"), title, artist: artist || "Unknown", positionSec: pos / 1000000, durationSec: len / 1000000, albumArt: art, volume: vol, platform: "linux" } : null)
+                })
+            })
+        }
+    } catch (e) {
+        console.error("[Spotify] State error:", e)
+    }
+    return null
+}
+
+export async function executeSpotifyCommand(cmd: string, val?: number): Promise<void> {
+    try {
+        if (isMac) {
+            const scripts: any = { playpause: "playpause", next: "next track", prev: "previous track", seek: `set player position to ${val}`, setVolume: `set sound volume to ${Math.round(val! * 100)}`, pause: "pause" }
+            if (scripts[cmd]) exec(`osascript -e '${macScript(scripts[cmd]).replace(/'/g, "'\\''")}'`, (e) => e && console.error("[Spotify] Mac command error:", e))
+        } else if (isWin && bridge?.connected) bridge.send({ type: "command", command: cmd, value: val })
+        else if (isWin) {
+            initSpotify()
+            setTimeout(() => bridge?.send({ type: "command", command: cmd, value: val }), 500)
+        } else if (isLinux) {
+            const dest = "--dest=org.mpris.MediaPlayer2.spotify /org/mpris/MediaPlayer2"
+            const mpris = "org.mpris.MediaPlayer2.Player"
+            const run = (c: string) =>
+                exec(`dbus-send --type=method_call ${dest} ${c}`, (e) => {
+                    if (e) {
+                        const isServiceUnknown = e.message?.includes("org.freedesktop.DBus.Error.ServiceUnknown") || e.message?.includes("ServiceUnknown")
+                        if (!isServiceUnknown) console.error("[Spotify] Linux command error:", e)
+                    }
+                })
+            if (cmd === "playpause") run(`${mpris}.PlayPause`)
+            else if (cmd === "next") run(`${mpris}.Next`)
+            else if (cmd === "prev") run(`${mpris}.Previous`)
+            else if (cmd === "pause") run(`${mpris}.Pause`)
+            else if (cmd === "setVolume" && val !== undefined) run(`org.freedesktop.DBus.Properties.Set string:${mpris} string:'Volume' variant:double:${val}`)
+            else if (cmd === "seek" && val !== undefined) {
+                exec(`dbus-send --print-reply ${dest} org.freedesktop.DBus.Properties.Get string:${mpris} string:'Metadata'`, (e, out) => {
+                    if (e) {
+                        const isServiceUnknown = e.message?.includes("org.freedesktop.DBus.Error.ServiceUnknown") || e.message?.includes("ServiceUnknown")
+                        if (!isServiceUnknown) console.error("[Spotify] Linux seek error:", e)
+                        return
+                    }
+                    const id = out?.match(/string\s+"mpris:trackid"\s+variant\s+string\s+"([^"]+)"/)?.[1]
+                    if (id) run(`${mpris}.SetPosition objpath:${id} int64:${Math.round(val * 1000000)}`)
+                })
+            }
+        }
+    } catch (e) {
+        console.error("[Spotify] Command error:", e)
+    }
+}

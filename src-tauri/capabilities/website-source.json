@@ -1,0 +1,8 @@
+{
+  "identifier": "website-source",
+  "description": "Website source fullscreen only; no library or system access",
+  "local": false,
+  "remote": { "urls": ["https://*", "http://*"] },
+  "webviews": ["website-source-*"],
+  "permissions": ["allow-website-source-fullscreen"]
+}

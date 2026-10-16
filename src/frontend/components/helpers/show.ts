@@ -1,0 +1,495 @@
+import { get } from "svelte/store"
+import type { Item, Show, ShowList, Shows, Slide, TrimmedShow, TrimmedShows } from "../../../types/Show"
+import { activeEdit, activeFocus, activePage, activeProject, activeShow, cachedShowsData, customMetadata, dictionary, focusMode, groupNumbers, groups, projects, refreshEditSlide, selected, shows, showsCache, sorted, sortedShowsList } from "../../stores"
+import { translateText } from "../../utils/language"
+import { clone, keysToID, removeValues, sortByName, sortByNameAndNumber } from "./array"
+import { GetLayout } from "./get"
+import { history } from "./history"
+import { isOutputBound, resolveOutputId } from "./output"
+import { loadShows } from "./setShow"
+import { swichProjectItem } from "./showActions"
+import { _show } from "./shows"
+
+// check if name exists and add number
+export function checkName(name = "", showId = "") {
+    if (!name || typeof name !== "string") name = translateText("main.unnamed")
+    name = formatToFileName(name)
+
+    const showsList = Object.entries(get(shows) || {})
+    const nameLower = name.toLowerCase()
+
+    let number = 1
+    while (showsList.find(([id, a]) => (!showId || id !== showId) && a.name?.toLowerCase() === (number > 1 ? `${nameLower} ${number}` : nameLower))) number++
+
+    // add number if existing name, and trim away spaces from the start/end
+    return (number > 1 ? `${name} ${number}` : name).trim()
+}
+
+export function formatToFileName(name = "") {
+    if (typeof name !== "string") return ""
+
+    name = name.replaceAll(":", ",")
+    // remove illegal file name characters
+    name = name.trim().replace(/[/\\?%*:|│"<>╠┤╡╝╖┐¬]/g, "")
+    // max 255 length
+    if (name.length > 255) name = name.slice(0, 255)
+
+    return name
+}
+
+// convert any text to a label id format
+export function getLabelId(label: string, replaceNumbers = true) {
+    if (!label) return ""
+
+    // TODO: disallow chars in labels: #:;!.,- ??
+    label = label
+        .toLowerCase()
+        .replace(/x[0-9]/g, "") // x0-9
+        .replace(/[[\]]/g, "") // []
+        .replace(/['":]/g, "") // '":
+        .trim()
+        .replaceAll(" ", "_") // " " -> _
+        .replaceAll("-", "_") // - -> _
+
+    if (!get(groupNumbers)) replaceNumbers = false
+    if (replaceNumbers) label = label.replace(/[0-9]/g, "")
+
+    if (label.endsWith("_")) label = label.slice(0, -1)
+
+    return label
+    // .replace(/[0-9-]/g, "")
+}
+
+export function openShow(showId: string) {
+    if (!showId || !get(shows)[showId]) return
+
+    // set active show in project
+    let pos: number | null = null
+    if (get(activeProject) !== null) {
+        let i = get(projects)[get(activeProject) || ""]?.shows?.findIndex((p) => p.id === showId) ?? -1
+        if (i > -1) pos = i
+    }
+
+    let newShow: any = { id: showId, type: "show" }
+
+    if (get(focusMode)) {
+        let inProject = get(projects)[get(activeProject) || ""]?.shows?.find((p) => p.id === showId)
+        if (inProject) {
+            activeFocus.set({ id: showId, index: pos ?? undefined })
+            return
+        } else {
+            focusMode.set(false)
+        }
+    }
+
+    if (pos !== null) {
+        newShow.index = pos
+
+        // async waiting for show to load
+        setTimeout(async () => {
+            // preload show (so the layout can be changed)
+            await loadShows([showId])
+            if (get(showsCache)[showId]) swichProjectItem(pos, showId)
+        })
+    }
+
+    activeShow.set(newShow)
+
+    if (get(activeEdit).id) activeEdit.set({ type: "show", slide: 0, items: [], showId })
+    if (get(activePage) === "edit") refreshEditSlide.set(true)
+}
+
+// check if label exists as a global label
+export function getGlobalGroup(group: string, returnInputIfNull = false): string {
+    const groupId = getLabelId(group)
+
+    if (get(groups)[groupId]) return groupId
+
+    const matchingName = Object.keys(get(groups)).find((id) => {
+        return get(groups)[id].name === group
+    })
+    if (matchingName) return matchingName
+
+    // find group based on language
+    let globalGroup = ""
+    Object.entries(get(dictionary).groups || {}).forEach(([id, name]) => {
+        if (name.toLowerCase() === groupId) globalGroup = id
+    })
+    return globalGroup || (returnInputIfNull ? groupId : "")
+}
+
+// get group number (dynamic counter)
+export function getGroupName({ show, showId }: { show: Show | null; showId: string }, slideID: string, groupName: string | null, layoutIndex: number, addHTML = false, layoutNumber = true) {
+    if (!show) return groupName || ""
+    if (groupName === ".") return "." // . as name will be hidden
+
+    let name = groupName
+    if (name === null) return name // child slide
+
+    if (!name?.length) name = layoutNumber ? "—" : ""
+    if (!get(groupNumbers)) return name
+
+    let slides = getSortedLayoutSlides(show)
+
+    // different slides with same name
+    const currentSlide = show.slides?.[slideID] || {}
+    const allSlidesWithSameGroup = slides.filter((a) => a.group === currentSlide.group)
+    const currentIndex = allSlidesWithSameGroup.findIndex((a) => a.id === slideID)
+    const currentGroupNumber = allSlidesWithSameGroup.length > 1 ? " " + (currentIndex + 1) : ""
+    name += currentGroupNumber
+
+    // same group - count
+    const layoutRef = getLayoutRef(showId)
+    const allGroupLayoutSlides = layoutRef.filter((a) => a.id === slideID)
+    const currentGroupLayoutIndex = allGroupLayoutSlides.findIndex((a) => a.layoutIndex === layoutIndex)
+    const currentLayoutNumberHTML = allGroupLayoutSlides.length > 1 ? '<span class="group_count">' + (currentGroupLayoutIndex + 1) + "</span>" : ""
+    const currentLayoutNumber = allGroupLayoutSlides.length > 1 ? " (" + (currentGroupLayoutIndex + 1) + ")" : ""
+    if (layoutNumber) name += addHTML ? currentLayoutNumberHTML : currentLayoutNumber
+
+    return name
+}
+
+// sort by order when just one layout
+function getSortedLayoutSlides(show: Show) {
+    let slides = keysToID(clone(show.slides || {}))
+    if (Object.keys(show.layouts || {}).length > 1) return slides
+
+    const layoutSlides = (Object.values(show.layouts || {})[0]?.slides || []).filter(Boolean).map(({ id }) => id)
+    if (!layoutSlides.length) return slides
+
+    slides = slides.sort((a, b) => {
+        const idxA = layoutSlides.indexOf(a.id)
+        const idxB = layoutSlides.indexOf(b.id)
+
+        if (idxA !== -1 && idxB !== -1) return idxA - idxB
+        if (idxA !== -1) return -1
+        if (idxB !== -1) return 1
+        return 0
+    })
+
+    return slides
+}
+
+// meta
+export function initializeMetadata({ number = "", title = "", artist = "", author = "", composer = "", publisher = "", copyright = "", CCLI = "", year = "", key = "" }) {
+    return { number, title, artist, author, composer, publisher, copyright, CCLI, year, key }
+}
+export function getCustomMetadata() {
+    const defaultKeys = Object.keys(initializeMetadata({}))
+
+    const customKeys = get(customMetadata).custom?.filter(Boolean) || []
+    const values: { [key: string]: string } = {}
+
+    defaultKeys.forEach((key) => {
+        if (get(customMetadata).disabled?.includes(key)) return
+        values[key] = ""
+    })
+    customKeys.forEach((key) => {
+        values[key] = ""
+    })
+
+    return values
+}
+
+export const metadataDisplayValues = [
+    { id: "never", name: "show_at.never" },
+    { id: "first", name: "show_at.first" },
+    { id: "last", name: "show_at.last" },
+    { id: "first_last", name: "show_at.first_last" },
+    { id: "always", name: "show_at.always" }
+]
+
+// create new slides
+export function newSlide(data: { items?: Item[]; group?: string; globalGroup?: string; notes?: string }): Slide {
+    return {
+        group: null,
+        color: null,
+        settings: {},
+        notes: "",
+        items: [],
+        ...data
+    }
+}
+
+// update list for drawer
+export function updateShowsList(allShows: TrimmedShows) {
+    // sort shows in alphabeticly order & remove private shows
+    const showsList = keysToID(allShows)
+
+    const sortType = get(sorted).shows?.type || "name"
+    // sort by name regardless if many shows have the same date
+    let sortedShows: (TrimmedShow & { id: string })[] = []
+
+    const getTimestampValue = (entry: TrimmedShow & { id: string }, key: "created" | "modified" | "used") => {
+        return entry.timestamps?.[key] || entry.timestamps?.created || 0
+    }
+
+    let inverted = sortType.endsWith("_old")
+    if (sortType.startsWith("created")) {
+        sortedShows = showsList.sort((a, b) => getTimestampValue(b, "created") - getTimestampValue(a, "created"))
+    } else if (sortType.startsWith("modified")) {
+        sortedShows = showsList.sort((a, b) => getTimestampValue(b, "modified") - getTimestampValue(a, "modified"))
+    } else if (sortType.startsWith("used")) {
+        sortedShows = showsList.sort((a, b) => getTimestampValue(b, "used") - getTimestampValue(a, "used"))
+    } else if (sortType === "number" || sortType === "number_des") {
+        const direction = sortType === "number_des" ? "desc" : "asc"
+        sortedShows = sortByNameAndNumber(showsList, direction)
+    } else {
+        // sort by name
+        sortedShows = sortByName(showsList)
+        if (sortType === "name_des") inverted = true
+    }
+    if (inverted) sortedShows = sortedShows.reverse()
+
+    // const profile = getAccess("shows")
+    // const hiddenCategories = Object.entries(profile).filter(([_, type]) => type === "none").map(([id]) => id)
+
+    const filteredShows: ShowList[] = removeValues(sortedShows, "private", true) // .filter((a) => !a.category || !hiddenCategories.includes(a.category))
+    sortedShowsList.set(filteredShows)
+}
+
+// sync "shows" data from "showsCache"
+export function syncCachedShows(cacheData: Shows = get(showsCache)) {
+    if (!cacheData || typeof cacheData !== "object") return
+
+    const current = get(shows)
+    const updates: TrimmedShows = {}
+
+    Object.entries(cacheData).forEach(([id, show]) => {
+        if (!show) return
+        const trimmed: TrimmedShow = {
+            name: show.name,
+            category: show.category || null,
+            timestamps: show.timestamps || current[id]?.timestamps || { created: 0, modified: null, used: null },
+            quickAccess: show.quickAccess || {},
+            ...(show.origin ? { origin: show.origin } : {}),
+            ...(show.private ? { private: true } : {}),
+            ...(show.locked ? { locked: true } : {})
+        }
+
+        if (JSON.stringify(current[id]) !== JSON.stringify(trimmed)) updates[id] = trimmed
+    })
+
+    if (Object.keys(updates).length) {
+        shows.update((a) => ({ ...a, ...updates }))
+    }
+}
+
+// update cached shows
+export function updateCachedShows(newShowsData: Shows) {
+    const cachedShows = {}
+    Object.entries(newShowsData).forEach(([id, show]) => {
+        const customId = getShowCacheId(id, show)
+        cachedShows[customId] = updateCachedShow(id, show)
+    })
+    cachedShowsData.set(cachedShows)
+}
+
+export function getShowCacheId(id: string, show: Show | null, layout = "") {
+    if (!show && !layout) return ""
+    return `${id}_${layout || show?.settings?.activeLayout}`
+}
+
+// get cached show by layout (used for multiple of the same shows with different layout selected in "Focus mode")
+export function getCachedShow(id: string, layout = "", updater = get(cachedShowsData)) {
+    const show = get(showsCache)[id]
+    const customId = getShowCacheId(id, show, layout)
+    let cachedShow = updater[customId]
+    if (cachedShow || !layout) return cachedShow
+
+    cachedShow = updateCachedShow(id, show, layout)
+    cachedShowsData.update((a) => {
+        a[customId] = cachedShow
+        return a
+    })
+
+    return cachedShow
+}
+
+// update cached show
+export function updateCachedShow(showId: string, show: Show, layoutId = "") {
+    if (!show) return
+
+    const layout = GetLayout(showId, layoutId)
+    // $: activeLayout = $showsCache[$activeShow!.id]?.settings?.activeLayout
+    // let layout = _show(id).layouts(activeLayout).ref()[0]
+
+    let endIndex = -1
+    if (layout.length) {
+        const lastEnabledSlide: number = layout.findIndex((a) => a.end === true && a.disabled !== true)
+        if (lastEnabledSlide >= 0) endIndex = lastEnabledSlide
+    }
+
+    const customId = getShowCacheId(showId, show)
+    const template = {
+        id: show.settings?.template,
+        slidesUpdated: cachedShowsData[customId]?.template?.slidesUpdated || false
+    }
+
+    let showSlides = getSortedLayoutSlides(show)
+
+    // create groups
+    const addedGroups: { [key: string]: number } = {}
+    const showGroups = showSlides.map(createGroups)
+    function createGroups(slide: Slide & { id: string }) {
+        // update if global group
+        if (slide.globalGroup && get(groups)[slide.globalGroup]) {
+            const oldGroup = clone({ group: slide.group, color: slide.color })
+
+            slide.group = get(groups)[slide.globalGroup].name
+            // get translated name
+            if (get(groups)[slide.globalGroup].default) slide.group = get(dictionary).groups?.[slide.group] || slide.group
+            slide.color = get(groups)[slide.globalGroup].color
+
+            // update local group
+            if (JSON.stringify(oldGroup) !== JSON.stringify({ group: slide.group, color: slide.color })) {
+                showsCache.update((a) => {
+                    a[showId].slides[slide.id].group = slide.group
+                    a[showId].slides[slide.id].color = slide.color
+                    return a
+                })
+            }
+        }
+
+        if (slide.group === null || !get(groupNumbers)) return { ...slide, id: slide.id }
+        if (!slide.group) slide.group = "—"
+
+        // add numbers to different slides with same name
+        if (addedGroups[slide.group]) {
+            addedGroups[slide.group]++
+            slide.group += " " + addedGroups[slide.group]
+        } else {
+            addedGroups[slide.group] = 1
+
+            // find all groups with same name
+            const allSameGroups = showSlides.filter((a) => a.group !== null && (a.group || "—") === slide.group)
+            if (allSameGroups.length > 1) slide.group += " 1"
+        }
+
+        return { ...slide, id: slide.id }
+    }
+    // sort groups by name
+    const sortedGroups = sortByName(
+        showGroups.filter((a) => a.group !== null && a.group !== undefined),
+        "group"
+    )
+
+    return { layout, endIndex, template, groups: sortedGroups }
+}
+
+export function removeTemplatesFromShow(showId: string, slideId?: string, enableHistory = false) {
+    if (!get(showsCache)[showId]) return
+
+    // remove show template
+    if (enableHistory) {
+        const settings = { ...clone(_show(showId).get("settings") || {}), template: null }
+        history({ id: "UPDATE", newData: { data: settings, key: "settings" }, oldData: { id: showId }, location: { page: "none", id: "show_key" } })
+    } else {
+        _show(showId).set({ key: "settings.template", value: null })
+    }
+
+    if (slideId) {
+        // remove slide template
+        showsCache.update((a) => {
+            const show = a[showId]
+            if (!show?.slides?.[slideId]?.settings?.template) return a
+
+            delete show.slides[slideId].settings.template
+
+            return a
+        })
+    } else if (enableHistory) {
+        // remove any slide templates
+        showsCache.update((a) => {
+            const show = a[showId]
+            Object.values(show.slides || {}).forEach((slide) => {
+                if (slide.settings?.template) delete slide.settings.template
+            })
+            return a
+        })
+    }
+}
+
+export function getLayoutRef(showId = "active", _updater?: Shows | Show) {
+    return _show(showId).layouts("active").ref()[0] || []
+}
+
+// a child slide has no "locked" state of its own, so check its parent (group) slide
+export function isSlideLocked(showId: string, slideId: string, _updater?: Shows | Show | null): boolean {
+    const slides = get(showsCache)[showId]?.slides || {}
+    const slide = slides[slideId]
+    if (!slide) return false
+    if (slide.locked) return true
+
+    // child slides are stored in the parent slide's "children" array
+    if (slide.group !== null) return false
+    const parentId = Object.keys(slides).find((id) => slides[id]?.children?.includes(slideId))
+    return !!slides[parentId || ""]?.locked
+}
+
+export function bindSlidesToOutput(indexes: number[], outputId: string) {
+    const ref = getLayoutRef()
+    const newBindings: string[][] = []
+
+    const firstBindings = ref[indexes[0]]?.data?.bindings || []
+    const add = !firstBindings.length || !isOutputBound(firstBindings, outputId)
+
+    indexes.forEach((i) => {
+        let bindings: string[] = ref[i]?.data?.bindings ? [...ref[i].data.bindings] : []
+        if (add) {
+            if (!bindings.length || !isOutputBound(bindings, outputId)) bindings.push(outputId)
+        } else {
+            bindings = bindings.filter((bId) => resolveOutputId(bId) !== outputId && bId !== outputId)
+        }
+        newBindings.push(bindings)
+    })
+
+    history({ id: "SHOW_LAYOUT", newData: { key: "bindings", data: newBindings, indexes, dataIsArray: false } })
+}
+
+// WIP should be merged with existing functions instead
+export function getSlideHighlightIndexes(actionId: string, sel = get(selected)): number[] {
+    const showId = get(activeShow)?.id || get(activeEdit)?.showId || ""
+    if (!showId) return []
+
+    const showSlides = get(showsCache)[showId]?.slides || {}
+    const ref = getLayoutRef(showId)
+    if (!ref.length) return []
+
+    const selectedSlides = sel.id === "slide" && Array.isArray(sel.data) ? sel.data.map((a: any) => ref[a.index]).filter(Boolean) : []
+    const getParentId = (s: any) => (s?.type === "child" ? s.parent?.id : s?.id) || ""
+    const getParentLayoutIndex = (s: any) => (s?.type === "child" ? s.parent?.layoutIndex : s?.layoutIndex)
+
+    if (actionId === "remove_group") {
+        const targetLayoutIndexes = new Set(
+            selectedSlides
+                .filter((s) => {
+                    const pid = getParentId(s)
+                    return pid && !showSlides[pid]?.locked && showSlides[pid]?.group !== "."
+                })
+                .map(getParentLayoutIndex)
+                .filter((idx) => idx !== undefined)
+        )
+        return targetLayoutIndexes.size ? ref.map((_, i) => i).filter((i) => targetLayoutIndexes.has(getParentLayoutIndex(ref[i]))) : []
+    }
+
+    if (actionId === "delete_slide" || actionId === "delete" || actionId === "delete_remove") {
+        const targetIds = new Set(
+            selectedSlides
+                .filter((s) => {
+                    const pid = getParentId(s)
+                    return pid && !showSlides[pid]?.locked
+                })
+                .map((s) => s.id)
+        )
+        return targetIds.size ? ref.map((_, i) => i).filter((i) => targetIds.has(ref[i].id)) : []
+    }
+
+    if (actionId === "delete_group" || sel.id === "group") {
+        const groupIds = sel.id === "group" ? (sel.data || []).map((a: any) => a.id).filter(Boolean) : selectedSlides.map(getParentId).filter((pid) => pid && !showSlides[pid]?.locked)
+        const targetGroupIds = new Set(groupIds)
+        return targetGroupIds.size ? ref.map((_, i) => i).filter((i) => targetGroupIds.has(getParentId(ref[i]))) : []
+    }
+
+    return []
+}

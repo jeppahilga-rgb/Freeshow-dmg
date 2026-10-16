@@ -1,0 +1,28 @@
+import { afterEach, expect, it, vi } from "vitest"
+afterEach(() => { vi.unstubAllGlobals(); vi.resetModules() })
+it("uses a general query for the single title/artist field and shares in-flight requests", async () => {
+    const fetcher = vi.fn(async () => ({ ok: true, json: async () => [{ id: 1, trackName: "Grace", artistName: "Singer", plainLyrics: "Words" }] }))
+    vi.stubGlobal("fetch", fetcher)
+    const { searchLyrics } = await import("./lyrics")
+    const results = await Promise.all([searchLyrics({ title: " Grace Singer " }), searchLyrics({ title: "Grace Singer" })])
+    expect(fetcher).toHaveBeenCalledTimes(1)
+    expect(fetcher.mock.calls[0][0]).toBe("https://lrclib.net/api/search?q=Grace+Singer")
+    expect(results[0][0].key).toBe("1")
+    await searchLyrics({ title: "Grace Singer" })
+    expect(fetcher).toHaveBeenCalledTimes(1)
+})
+it("reports rate limiting and permits a later retry", async () => {
+    const fetcher = vi.fn().mockResolvedValueOnce({ status: 429, ok: false }).mockResolvedValueOnce({ ok: true, json: async () => [] })
+    vi.stubGlobal("fetch", fetcher)
+    const { searchLyrics } = await import("./lyrics")
+    await expect(searchLyrics({ title: "Grace" })).rejects.toThrow("rate-limited")
+    await expect(searchLyrics({ title: "Grace" })).resolves.toEqual([])
+    expect(fetcher).toHaveBeenCalledTimes(2)
+})
+it("skips empty queries and rejects unsupported lyric IDs", async () => {
+    const fetcher = vi.fn(); vi.stubGlobal("fetch", fetcher)
+    const { searchLyrics, getLyrics } = await import("./lyrics")
+    expect(await searchLyrics({ title: "  " })).toEqual([])
+    await expect(getLyrics({ source: "LRCLIB", key: "../bad" } as any)).rejects.toThrow("Search again")
+    expect(fetcher).not.toHaveBeenCalled()
+})

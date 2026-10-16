@@ -1,0 +1,327 @@
+import { get } from "svelte/store"
+import { resolveImportedFonts } from "../components/helpers/importFonts"
+import { uid } from "uid"
+import type { Show, Slide } from "../../types/Show"
+import type { StageLayout } from "../../types/Stage"
+import type { Category } from "../../types/Tabs"
+import { history } from "../components/helpers/history"
+import { convertOldShowValues } from "../components/helpers/setShow"
+import { checkName } from "../components/helpers/show"
+import { actionTags, activeDrawerTab, activePopup, activeProject, activeRename, activeShow, alertMessage, categories, drawerTabsData, shows } from "../stores"
+import { newToast } from "../utils/common"
+import { convertText } from "./txt"
+
+export function createCategory(name: string, icon = "song", { isDefault, isArchive }: { isDefault?: boolean; isArchive?: boolean } = {}) {
+    // return selected category if it is empty
+    const selectedCategory = get(drawerTabsData).shows?.activeSubTab || ""
+    if (get(activeDrawerTab) === "shows" && selectedCategory !== "all" && selectedCategory !== "unlabeled") {
+        const categoryCount = Object.values(get(shows)).reduce((count, show) => (count += show.category === selectedCategory ? 1 : 0), 0)
+        if (!categoryCount) return selectedCategory
+    }
+
+    // remove parentheses and replace spaces with underscores to convert name to id
+    const id = name.toLowerCase().replace(/[()]/g, "").trim().replace(/\s+/g, "_")
+    if (get(categories)[id]) return id
+    if (isDefault) name = "category." + name
+
+    const data: Category = { name, icon }
+    if (isDefault) data.default = true
+    if (isArchive) data.isArchive = true
+    history({ id: "UPDATE", newData: { data }, oldData: { id }, location: { page: "drawer", id: "category_shows" } })
+
+    setTimeout(() => {
+        activeRename.set(null)
+    })
+
+    return id
+}
+
+export function setTempShows(tempShows: { id: string; show: Show }[], options: { suppressFinishedToast?: boolean } = {}) {
+    if (tempShows.length === 1) {
+        const selectedIndex = get(activeShow)?.index === undefined ? undefined : get(activeShow)!.index! + 1
+        history({ id: "UPDATE", newData: { data: tempShows[0].show, remember: { project: get(activeProject), index: selectedIndex } }, oldData: { id: tempShows[0].id }, location: { page: "show", id: "show" } })
+    } else {
+        history({ id: "SHOWS", newData: { data: tempShows, replace: true }, location: { page: "show" } })
+    }
+
+    activePopup.set(null)
+    if (!options.suppressFinishedToast) newToast("main.finished")
+}
+
+export async function importShow(files: { content: string; name?: string; extension?: string }[]) {
+    const tempShows: { id: string; show: Show }[] = []
+
+    await Promise.all(files.map(async (a) => loadShow(a as any)))
+
+    async function loadShow({ content, name }) {
+        let id
+        let show
+
+        try {
+            const showData = JSON.parse(content)
+            if (Array.isArray(showData)) {
+                ;[id, show] = showData
+            } else {
+                id = uid()
+                show = showData
+            }
+        } catch (e: any) {
+            // try to fix broken show files
+            content = content.slice(0, content.indexOf("}}]") + 3)
+
+            try {
+                const showData = JSON.parse(content)
+                if (Array.isArray(showData)) {
+                    ;[id, show] = showData
+                } else {
+                    id = uid()
+                    show = showData
+                }
+            } catch (err: any) {
+                console.error(name, err)
+                const pos = Number(err.toString().replace(/\D+/g, "") || 100)
+                console.info(pos, content.slice(pos - 5, pos + 5), content.slice(pos - 100, pos + 100))
+                return
+            }
+        }
+
+        if (!show) return
+        show = fixShowIssues(show)
+
+        // set to selected category if set category does not exist
+        let categoryId = show.category && get(categories)[show.category] ? show.category : get(drawerTabsData).shows?.activeSubTab
+        if (categoryId === "all" || categoryId === "unlabeled") categoryId = null
+        show.category = categoryId
+
+        show = await convertOldShowValues(show)
+        tempShows.push({ id, show: { ...show, name: checkName(show.name, id) } })
+    }
+
+    const fontWarnings = await resolveImportedFonts(tempShows.map(entry => entry.show))
+    setTempShows(tempShows)
+    if (fontWarnings.length) { alertMessage.set(fontWarnings.join('\n')); activePopup.set('alert') }
+}
+
+/// TEMPLATE ///
+
+export function importTemplate(files: { content: string; name?: string; extension?: string }[]) {
+    files.forEach(({ content }) => {
+        const parsed = JSON.parse(content)
+
+        // old template export does not have the "template" key (pre 1.4.5)
+        const template = parsed.template ? parsed.template : parsed
+        if (!template.items) return
+
+        const templateId = template.id
+        delete template.id
+
+        history({ id: "UPDATE", newData: { data: template }, oldData: { id: templateId }, location: { page: "drawer", id: "template" } })
+    })
+
+    if (get(activePopup)) {
+        alertMessage.set("actions.imported")
+        activePopup.set("alert")
+    } else {
+        newToast("actions.imported")
+    }
+}
+
+/// OVERLAY ///
+
+export function importOverlay(files: { content: string; name?: string; extension?: string }[]) {
+    files.forEach(({ content }) => {
+        const parsed = JSON.parse(content)
+
+        const overlay = parsed.overlay ? parsed.overlay : parsed
+        if (!overlay.items) return
+
+        const overlayId = overlay.id
+        delete overlay.id
+
+        history({ id: "UPDATE", newData: { data: overlay }, oldData: { id: overlayId }, location: { page: "drawer", id: "overlay" } })
+    })
+
+    if (get(activePopup)) {
+        alertMessage.set("actions.imported")
+        activePopup.set("alert")
+    } else {
+        newToast("actions.imported")
+    }
+}
+
+export function importAction(files: { content: string; name?: string; extension?: string }[]) {
+    files.forEach(({ content }) => {
+        const parsed = JSON.parse(content)
+        const action = parsed.action ? parsed.action : parsed
+        if (!action.triggers) return
+
+        // create any tags that do not exist
+        action.tags?.forEach((tagId: string) => {
+            if (get(actionTags)[tagId]) return
+
+            actionTags.update((a) => {
+                a[tagId] = { name: "Tag", color: "#ffffff" }
+                return a
+            })
+        })
+
+        const actionId = action.id || uid()
+        delete action.id
+
+        history({ id: "UPDATE", newData: { data: action }, oldData: { id: actionId }, location: { page: "drawer", id: "action" } })
+    })
+
+    if (get(activePopup)) {
+        alertMessage.set("actions.imported")
+        activePopup.set("alert")
+    } else {
+        newToast("actions.imported")
+    }
+}
+
+export function importStage(files: { content: string; name?: string; extension?: string }[]) {
+    let imported = 0
+
+    files.forEach(({ content }) => {
+        let parsed: Partial<StageLayout & { id: string }>
+        try {
+            parsed = JSON.parse(content)
+        } catch (err) {
+            console.error("Failed to import stage layout:", err)
+            return
+        }
+
+        const stageId = parsed.id || uid()
+        delete parsed.id
+
+        if (!isStageLayout(parsed)) return
+
+        const data: StageLayout = {
+            ...parsed,
+            name: parsed.name || "",
+            settings: parsed.settings || {},
+            items: parsed.items || {},
+            modified: Date.now()
+        }
+
+        history({ id: "UPDATE", newData: { data }, oldData: { id: stageId }, location: { page: "stage", id: "stage" } })
+        imported++
+    })
+
+    if (!imported) {
+        newToast("error.import")
+        return
+    }
+
+    if (get(activePopup)) {
+        alertMessage.set("actions.imported")
+        activePopup.set("alert")
+    } else {
+        newToast("actions.imported")
+    }
+
+    function isStageLayout(value: any): value is StageLayout {
+        return !!value && typeof value === "object" && !!value.settings && !!value.items && typeof value.items === "object"
+    }
+}
+
+/// //
+
+export function importFromClipboard() {
+    navigator.clipboard
+        .readText()
+        .then((text) => {
+            let activeCategory = get(drawerTabsData).shows?.activeSubTab
+            if (activeCategory === "all" || activeCategory === "unlabeled") activeCategory = null
+
+            convertText({ text, noFormatting: true, category: activeCategory })
+        })
+        .catch((err) => {
+            console.error("Failed to read clipboard contents: ", err)
+        })
+}
+
+// SPECIFIC FORMATS
+
+export function importSpecific(data: { content: string; name?: string; extension?: string }[], store: any) {
+    data.forEach(({ content }) => {
+        content = JSON.parse(content)
+
+        store.update((a) => {
+            a[uid()] = content
+            return a
+        })
+    })
+
+    newToast("main.finished")
+}
+
+export function fixShowIssues(show: Show) {
+    if (!show) return null
+
+    if (typeof show.name !== "string") show.name = ""
+    if (!show.category) show.category = null
+    if (!show.slides) show.slides = {}
+    if (!show.layouts) show.layouts = {}
+    if (!show.settings) show.settings = { activeLayout: Object.keys(show.layouts)[0] || "", template: null }
+    if (!show.timestamps) show.timestamps = { created: 0, modified: 0, used: 0 }
+    if (!show.meta) show.meta = {}
+    if (!show.media) show.media = {}
+
+    // remove unused children slides
+    const allUsedSlides: string[] = Object.keys(show.slides).reduce((ids: string[], slideId: string) => {
+        const slide = show.slides[slideId]
+        if (slide.group === null) return ids
+
+        ids.push(slideId)
+        ids.push(...(slide.children || []))
+        return ids
+    }, [])
+
+    Object.keys(show.slides).forEach((slideId: string) => {
+        const slide = show.slides[slideId]
+        if (typeof slide !== "object") {
+            // something is wrong
+            delete show.slides[slideId]
+            return
+        }
+
+        // remove if unused
+        if (!allUsedSlides.includes(slideId) && slide.group === null) {
+            delete show.slides[slideId]
+            return
+        }
+
+        if (!Array.isArray(slide.items)) slide.items = []
+
+        // check & fix looping items bug
+        if (slide.items?.length < 30) return
+
+        let previousItem = ""
+        let matchCount = 0
+        for (const item of slide.items) {
+            const currentItem = JSON.stringify(item)
+
+            if (previousItem === currentItem) matchCount++
+            if (matchCount >= 30) {
+                show.slides[slideId].items = []
+                return
+            }
+
+            previousItem = currentItem
+        }
+    })
+
+    Object.values<Slide>(show.slides).forEach((slide) => {
+        // fix undefined items issue
+        slide.items = slide.items?.filter((item) => item !== undefined && item !== null) || []
+
+        // fix undefined lines issue
+        slide.items.forEach((item) => {
+            if (!item.lines) return
+            item.lines = item.lines.filter((line) => line !== undefined)
+        })
+    })
+
+    return show
+}

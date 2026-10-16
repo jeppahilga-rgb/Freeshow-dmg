@@ -1,0 +1,68 @@
+<script lang="ts">
+    import { createEventDispatcher } from "svelte"
+    import { translateText } from "../../../utils/language"
+
+    export let value: string
+    export let placeholder = ""
+    export let disabled = false
+    export let lines = 4
+    export let autofocus = false
+
+    const TIME = 100
+    let dispatch = createEventDispatcher()
+    let timeout: NodeJS.Timeout | null = null
+
+    function input() {
+        if (timeout !== null) return
+        timeout = setTimeout(() => {
+            dispatch("edit", value)
+            timeout = null
+        }, TIME)
+    }
+
+    function change() {
+        // timeout so textarea value can update on context paste
+        setTimeout(() => {
+            dispatch("change", value)
+        })
+    }
+</script>
+
+<div class="paper">
+    <textarea placeholder={placeholder || translateText("empty.text...")} class="edit {$$props.class}" name="" id="" cols="1" rows={lines} style={$$props.style || ""} bind:value on:input={input} on:change={change} on:keydown {disabled} {autofocus} />
+</div>
+
+<style>
+    .paper {
+        /* background-color: white;
+    color: black; */
+        /* overflow-y: auto; */
+        display: flex;
+        flex: 1;
+        height: 100%;
+        overflow: hidden;
+        /* box-shadow: inset 0 0 10px 0px rgb(0 0 0 / 30%); */
+    }
+
+    .edit {
+        height: 100%;
+        width: 100%;
+        padding: 10px;
+        outline: none;
+        border: none;
+        color: inherit;
+        font-size: inherit;
+        font-family: inherit;
+        background-color: inherit;
+        resize: none;
+    }
+
+    textarea::placeholder {
+        color: inherit;
+        opacity: 0.5;
+    }
+
+    textarea:disabled {
+        opacity: 0.5;
+    }
+</style>

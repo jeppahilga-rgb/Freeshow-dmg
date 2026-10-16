@@ -1,0 +1,68 @@
+<script lang="ts">
+    import { onMount } from "svelte"
+    import type { Item } from "../../../../types/Show"
+    import { activeEdit, activeShow, overlays, popupData, templates } from "../../../stores"
+    import { history } from "../../helpers/history"
+    import { getLayoutRef } from "../../helpers/show"
+    import { _show } from "../../helpers/shows"
+    import MaterialNumberInput from "../../inputs/MaterialNumberInput.svelte"
+
+    let action = $popupData.action
+    let type = $activeEdit.type
+    let indexes: number[] = $activeEdit.items
+
+    let layoutRef = getLayoutRef()
+    let slideRef = layoutRef[$activeEdit.slide!] || {}
+    let slideItems: Item[] = _show().get("slides")?.[slideRef.id]?.items || []
+
+    if ($activeEdit.id) getItems()
+    function getItems() {
+        let slide = {}
+        if (type === "overlay") slide = $overlays
+        else if (type === "template") slide = $templates
+
+        slideItems = slide[$activeEdit.id!]?.items
+    }
+
+    let value: number = slideItems?.[indexes[0]]?.actions?.[action] || 0
+
+    onMount(() => {
+        popupData.set({})
+    })
+
+    function updateValue(e: any) {
+        value = e?.detail ?? e
+        if (value) value = Number(value)
+
+        slideItems.forEach((_, i: number) => {
+            if (!indexes.includes(i) || !slideItems[i]) return
+
+            if (!slideItems[i].actions) slideItems[i].actions = {}
+
+            if (value) slideItems[i].actions[action] = value
+            else delete slideItems[i].actions[action]
+        })
+
+        if (indexes.some((i) => !slideItems[i])) return
+        let actions = indexes.map((i) => slideItems[i].actions)
+
+        if (type === "overlay" || type === "template") {
+            history({
+                id: "UPDATE",
+                oldData: { id: $activeEdit.id },
+                newData: { key: "items", subkey: "actions", data: actions, indexes },
+                location: { page: "edit", id: $activeEdit.type + "_items", override: "itemaction_" + indexes.join(",") }
+            })
+
+            return
+        }
+
+        history({
+            id: "setItems",
+            newData: { style: { key: "actions", values: actions } },
+            location: { page: "edit", show: $activeShow!, slide: slideRef.id, items: indexes, override: "itemaction_" + slideRef.id + "_items_" + indexes.join(",") }
+        })
+    }
+</script>
+
+<MaterialNumberInput label="timer.seconds" {value} max={3600} on:change={updateValue} />

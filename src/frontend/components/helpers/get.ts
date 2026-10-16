@@ -1,0 +1,51 @@
+import { get } from "svelte/store"
+import type { ID, Show, Slide, SlideData } from "../../../types/Show"
+import { activeShow, showsCache, special } from "../../stores"
+import { getSlideText } from "../edit/scripts/textStyle"
+import { getExtension, getFileName, removeExtension } from "./media"
+
+// please don't use the functions in this file!
+// they are outdated, but still in use
+
+export function splitPath(path: string) {
+    const name: string = getFileName(path)
+    const extension: string = getExtension(name)
+    const shortName: string = removeExtension(name)
+    return { path, name, extension, shortName }
+}
+
+export const GetLayout = (showID: null | ID = null, layoutID: null | ID = null): SlideData[] => {
+    if (!showID) showID = get(activeShow)?.id || null
+    if (!showID) return []
+    const currentShow: Show = get(showsCache)[showID]
+    if (!layoutID) layoutID = currentShow?.settings?.activeLayout
+    const layoutSlides: SlideData[] = []
+    if (currentShow?.layouts) {
+        currentShow.layouts[layoutID]?.slides?.forEach((ls) => {
+            if (ls && currentShow.slides[ls.id]) {
+                const slide: Slide = currentShow.slides[ls.id]
+                const newLS = { ...ls }
+                delete newLS.children
+                layoutSlides.push({ ...newLS, color: slide.color })
+
+                if (slide.children) {
+                    slide.children.forEach((id: string) => {
+                        if (ls.children?.[id]) {
+                            const slideData: any = ls.children[id]
+                            if (slideData) layoutSlides.push({ id, ...slideData, color: slide.color, parent: ls.id })
+                        } else layoutSlides.push({ id, color: slide.color, parent: ls.id })
+                    })
+                }
+            }
+        })
+    }
+
+    if (get(special).alwaysPlaceEmptySlideFirst && layoutSlides.length) {
+        const firstSlide = currentShow?.slides?.[layoutSlides[0]?.id]
+        if (firstSlide && getSlideText(firstSlide).length) {
+            layoutSlides.unshift({ id: "fake_empty", color: null })
+        }
+    }
+
+    return layoutSlides
+}

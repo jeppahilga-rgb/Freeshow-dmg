@@ -1,0 +1,691 @@
+{
+  "auditReportVersion": 2,
+  "vulnerabilities": {
+    "@firebase/firestore": {
+      "name": "@firebase/firestore",
+      "severity": "high",
+      "isDirect": false,
+      "via": [
+        "@grpc/grpc-js"
+      ],
+      "effects": [
+        "@firebase/firestore-compat",
+        "firebase"
+      ],
+      "range": "1.3.1-0 - 1.3.1-canary.df1b588 || 1.3.2-0 - 1.3.3-canary.bc4a844 || 1.13.1-0 - 1.13.1-canary.ce3addba || 1.14.0-0 - 1.15.1 || 3.7.3-20221108184443 - 3.7.3-canary.fde5adf63 || >=3.8.0-20221206221533",
+      "nodes": [
+        "node_modules/@firebase/firestore"
+      ],
+      "fixAvailable": {
+        "name": "firebase",
+        "version": "9.14.0",
+        "isSemVerMajor": true
+      }
+    },
+    "@firebase/firestore-compat": {
+      "name": "@firebase/firestore-compat",
+      "severity": "high",
+      "isDirect": false,
+      "via": [
+        "@firebase/firestore"
+      ],
+      "effects": [
+        "firebase"
+      ],
+      "range": "<=0.0.900-exp.520ca39d0 || 0.2.3-20221108184443 - 0.2.3-canary.fde5adf63 || >=0.3.0-20221206221533",
+      "nodes": [
+        "node_modules/@firebase/firestore-compat"
+      ],
+      "fixAvailable": {
+        "name": "firebase",
+        "version": "9.14.0",
+        "isSemVerMajor": true
+      }
+    },
+    "@grpc/grpc-js": {
+      "name": "@grpc/grpc-js",
+      "severity": "high",
+      "isDirect": false,
+      "via": [
+        {
+          "source": 1240623,
+          "name": "@grpc/grpc-js",
+          "dependency": "@grpc/grpc-js",
+          "title": "@grpc/grpc-js: In certain configurations, getAuthContext can return unauthorized certificates as though they were authorized",
+          "url": "https://github.com/advisories/GHSA-m9gg-hp2v-232j",
+          "severity": "high",
+          "cwe": [
+            "CWE-295"
+          ],
+          "cvss": {
+            "score": 7.4,
+            "vectorString": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:N"
+          },
+          "range": "<1.13.6"
+        },
+        {
+          "source": 1240625,
+          "name": "@grpc/grpc-js",
+          "dependency": "@grpc/grpc-js",
+          "title": "@grpc/grpc-js: The server transmits some error messages thrown by method handlers to the client in status messages",
+          "url": "https://github.com/advisories/GHSA-f596-whhp-79r4",
+          "severity": "low",
+          "cwe": [
+            "CWE-550"
+          ],
+          "cvss": {
+            "score": 3.7,
+            "vectorString": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:N/A:N"
+          },
+          "range": "<1.13.6"
+        }
+      ],
+      "effects": [
+        "@firebase/firestore"
+      ],
+      "range": "<=1.13.5",
+      "nodes": [
+        "node_modules/@grpc/grpc-js"
+      ],
+      "fixAvailable": {
+        "name": "firebase",
+        "version": "9.14.0",
+        "isSemVerMajor": true
+      }
+    },
+    "@sveltejs/vite-plugin-svelte": {
+      "name": "@sveltejs/vite-plugin-svelte",
+      "severity": "moderate",
+      "isDirect": true,
+      "via": [
+        "@sveltejs/vite-plugin-svelte-inspector",
+        "svelte-hmr",
+        "vite"
+      ],
+      "effects": [],
+      "range": "<=3.1.2",
+      "nodes": [
+        "node_modules/@sveltejs/vite-plugin-svelte"
+      ],
+      "fixAvailable": {
+        "name": "@sveltejs/vite-plugin-svelte",
+        "version": "7.3.1",
+        "isSemVerMajor": true
+      }
+    },
+    "@sveltejs/vite-plugin-svelte-inspector": {
+      "name": "@sveltejs/vite-plugin-svelte-inspector",
+      "severity": "moderate",
+      "isDirect": false,
+      "via": [
+        "@sveltejs/vite-plugin-svelte",
+        "svelte",
+        "vite"
+      ],
+      "effects": [
+        "@sveltejs/vite-plugin-svelte"
+      ],
+      "range": "<=2.0.0-next.1",
+      "nodes": [
+        "node_modules/@sveltejs/vite-plugin-svelte-inspector"
+      ],
+      "fixAvailable": {
+        "name": "@sveltejs/vite-plugin-svelte",
+        "version": "7.3.1",
+        "isSemVerMajor": true
+      }
+    },
+    "@vitest/mocker": {
+      "name": "@vitest/mocker",
+      "severity": "moderate",
+      "isDirect": false,
+      "via": [
+        {
+          "source": 1193684,
+          "name": "@vitest/mocker",
+          "dependency": "@vitest/mocker",
+          "title": "Vitest: Path Traversal / Arbitrary File Read via @vitest/mocker Redirect Mock",
+          "url": "https://github.com/advisories/GHSA-82fw-gwwq-j7x9",
+          "severity": "moderate",
+          "cwe": [
+            "CWE-22"
+          ],
+          "cvss": {
+            "score": 5.9,
+            "vectorString": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:N/A:N"
+          },
+          "range": ">=2.1.0 <4.1.11"
+        },
+        "vite"
+      ],
+      "effects": [
+        "vitest"
+      ],
+      "range": "<=4.1.10",
+      "nodes": [
+        "node_modules/vitest/node_modules/@vitest/mocker"
+      ],
+      "fixAvailable": {
+        "name": "vitest",
+        "version": "5.0.3",
+        "isSemVerMajor": true
+      }
+    },
+    "esbuild": {
+      "name": "esbuild",
+      "severity": "moderate",
+      "isDirect": false,
+      "via": [
+        {
+          "source": 1102341,
+          "name": "esbuild",
+          "dependency": "esbuild",
+          "title": "esbuild enables any website to send any requests to the development server and read the response",
+          "url": "https://github.com/advisories/GHSA-67mh-4wv8-2f99",
+          "severity": "moderate",
+          "cwe": [
+            "CWE-346"
+          ],
+          "cvss": {
+            "score": 5.3,
+            "vectorString": "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:U/C:H/I:N/A:N"
+          },
+          "range": "<=0.24.2"
+        }
+      ],
+      "effects": [
+        "vite"
+      ],
+      "range": "<=0.24.2",
+      "nodes": [
+        "node_modules/esbuild",
+        "node_modules/vite-node/node_modules/esbuild",
+        "node_modules/vitest/node_modules/esbuild"
+      ],
+      "fixAvailable": {
+        "name": "vite",
+        "version": "8.3.4",
+        "isSemVerMajor": true
+      }
+    },
+    "firebase": {
+      "name": "firebase",
+      "severity": "high",
+      "isDirect": true,
+      "via": [
+        "@firebase/firestore",
+        "@firebase/firestore-compat"
+      ],
+      "effects": [],
+      "range": "0.900.22 || 6.0.2-0 - 6.0.2-canary.42eae23 || 6.0.3-0 - 6.0.4-canary.bc4a844 || 7.9.1-0 - 7.9.1-canary.0396117e || 7.13.2-0 - 7.13.2-canary.ce3addba || 7.14.0-0 - 7.15.1 || 8.10.0-20217172214 - 8.10.0-canary.f40c0db53 || 9.0.0-20217250818 - 9.0.0-canary.d0d3acb10 || 9.0.1-2021727231341 - 9.0.1-canary.e039e1472 || 9.0.2-2021891633 - 9.0.2-canary.ff9baf70c || 9.0.3-202181503543 - 9.1.0-canary.f7d8324a1 || 9.1.1-2021830195733 - 9.1.1-canary.e70de6201 || 9.1.2-20219523556 - 9.1.2-canary.fc1d36497 || 9.13.1-20221108184443 - 9.14.0-canary.fde5adf63 || >=9.15.0-20221206221533",
+      "nodes": [
+        "node_modules/firebase"
+      ],
+      "fixAvailable": {
+        "name": "firebase",
+        "version": "9.14.0",
+        "isSemVerMajor": true
+      }
+    },
+    "svelte": {
+      "name": "svelte",
+      "severity": "moderate",
+      "isDirect": true,
+      "via": [
+        {
+          "source": 1098725,
+          "name": "svelte",
+          "dependency": "svelte",
+          "title": "Svelte has a potential mXSS vulnerability due to improper HTML escaping",
+          "url": "https://github.com/advisories/GHSA-8266-84wp-wv5c",
+          "severity": "moderate",
+          "cwe": [
+            "CWE-79"
+          ],
+          "cvss": {
+            "score": 5.4,
+            "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:L/I:L/A:N"
+          },
+          "range": "<4.2.19"
+        },
+        {
+          "source": 1113416,
+          "name": "svelte",
+          "dependency": "svelte",
+          "title": "Svelte SSR attribute spreading includes inherited properties from prototype chain",
+          "url": "https://github.com/advisories/GHSA-crpf-4hrx-3jrp",
+          "severity": "moderate",
+          "cwe": [
+            "CWE-915"
+          ],
+          "cvss": {
+            "score": 0,
+            "vectorString": null
+          },
+          "range": "<=5.51.4"
+        },
+        {
+          "source": 1113418,
+          "name": "svelte",
+          "dependency": "svelte",
+          "title": "Svelte SSR does not validate dynamic element tag names in `<svelte:element>`",
+          "url": "https://github.com/advisories/GHSA-m56q-vw4c-c2cp",
+          "severity": "moderate",
+          "cwe": [
+            "CWE-79"
+          ],
+          "cvss": {
+            "score": 0,
+            "vectorString": null
+          },
+          "range": "<=5.51.4"
+        },
+        {
+          "source": 1113419,
+          "name": "svelte",
+          "dependency": "svelte",
+          "title": "Svelte affected by cross-site scripting via spread attributes in Svelte SSR",
+          "url": "https://github.com/advisories/GHSA-f7gr-6p89-r883",
+          "severity": "moderate",
+          "cwe": [
+            "CWE-79"
+          ],
+          "cvss": {
+            "score": 0,
+            "vectorString": null
+          },
+          "range": "<=5.51.4"
+        },
+        {
+          "source": 1114402,
+          "name": "svelte",
+          "dependency": "svelte",
+          "title": "Svelte vulnerable to XSS during SSR with contenteditable `bind:innerText` and `bind:textContent`",
+          "url": "https://github.com/advisories/GHSA-phwv-c562-gvmh",
+          "severity": "moderate",
+          "cwe": [
+            "CWE-79"
+          ],
+          "cvss": {
+            "score": 0,
+            "vectorString": null
+          },
+          "range": "<=5.53.4"
+        },
+        {
+          "source": 1120446,
+          "name": "svelte",
+          "dependency": "svelte",
+          "title": "Svelte Vulnerable to XSS via DOM Clobbering of Internal Framework State",
+          "url": "https://github.com/advisories/GHSA-rcqx-6q8c-2c42",
+          "severity": "moderate",
+          "cwe": [
+            "CWE-79"
+          ],
+          "cvss": {
+            "score": 0,
+            "vectorString": null
+          },
+          "range": "<=5.55.6"
+        },
+        {
+          "source": 1120449,
+          "name": "svelte",
+          "dependency": "svelte",
+          "title": "Svelte SSR vulnerable to cross-site scripting via spread attributes",
+          "url": "https://github.com/advisories/GHSA-pr6f-5x2q-rwfp",
+          "severity": "moderate",
+          "cwe": [
+            "CWE-79"
+          ],
+          "cvss": {
+            "score": 0,
+            "vectorString": null
+          },
+          "range": "<=5.55.6"
+        }
+      ],
+      "effects": [
+        "@sveltejs/vite-plugin-svelte-inspector",
+        "svelte-hmr",
+        "svelte-preprocess"
+      ],
+      "range": "<=5.55.6",
+      "nodes": [
+        "node_modules/svelte"
+      ],
+      "fixAvailable": {
+        "name": "svelte",
+        "version": "5.57.2",
+        "isSemVerMajor": true
+      }
+    },
+    "svelte-hmr": {
+      "name": "svelte-hmr",
+      "severity": "moderate",
+      "isDirect": false,
+      "via": [
+        "svelte"
+      ],
+      "effects": [
+        "@sveltejs/vite-plugin-svelte"
+      ],
+      "range": ">=0.15.2",
+      "nodes": [
+        "node_modules/svelte-hmr"
+      ],
+      "fixAvailable": {
+        "name": "@sveltejs/vite-plugin-svelte",
+        "version": "7.3.1",
+        "isSemVerMajor": true
+      }
+    },
+    "svelte-preprocess": {
+      "name": "svelte-preprocess",
+      "severity": "moderate",
+      "isDirect": true,
+      "via": [
+        "svelte"
+      ],
+      "effects": [],
+      "range": "<=5.0.4",
+      "nodes": [
+        "node_modules/svelte-preprocess"
+      ],
+      "fixAvailable": {
+        "name": "svelte-preprocess",
+        "version": "6.0.5",
+        "isSemVerMajor": true
+      }
+    },
+    "tinypool": {
+      "name": "tinypool",
+      "severity": "critical",
+      "isDirect": false,
+      "via": [
+        {
+          "source": 1241260,
+          "name": "tinypool",
+          "dependency": "tinypool",
+          "title": "Tinypool: Prototype Pollution gadget in worker options leads to Remote Code Execution",
+          "url": "https://github.com/advisories/GHSA-5gmw-xhrv-c9v3",
+          "severity": "critical",
+          "cwe": [
+            "CWE-1321"
+          ],
+          "cvss": {
+            "score": 0,
+            "vectorString": null
+          },
+          "range": "<=2.1.0"
+        },
+        {
+          "source": 1241261,
+          "name": "tinypool",
+          "dependency": "tinypool",
+          "title": "Tinypool: Prototype Pollution Gadget to RCE in run() options",
+          "url": "https://github.com/advisories/GHSA-85c8-ppgw-ccpr",
+          "severity": "critical",
+          "cwe": [
+            "CWE-94",
+            "CWE-1321"
+          ],
+          "cvss": {
+            "score": 0,
+            "vectorString": null
+          },
+          "range": "<2.1.2"
+        }
+      ],
+      "effects": [
+        "vitest"
+      ],
+      "range": "<=2.1.1",
+      "nodes": [
+        "node_modules/tinypool"
+      ],
+      "fixAvailable": {
+        "name": "vitest",
+        "version": "5.0.3",
+        "isSemVerMajor": true
+      }
+    },
+    "vite": {
+      "name": "vite",
+      "severity": "high",
+      "isDirect": true,
+      "via": [
+        {
+          "source": 1107323,
+          "name": "vite",
+          "dependency": "vite",
+          "title": "Vite middleware may serve files starting with the same name with the public directory",
+          "url": "https://github.com/advisories/GHSA-g4jq-h2w9-997c",
+          "severity": "low",
+          "cwe": [
+            "CWE-22",
+            "CWE-200",
+            "CWE-284"
+          ],
+          "cvss": {
+            "score": 0,
+            "vectorString": null
+          },
+          "range": "<=5.4.19"
+        },
+        {
+          "source": 1107327,
+          "name": "vite",
+          "dependency": "vite",
+          "title": "Vite's `server.fs` settings were not applied to HTML files",
+          "url": "https://github.com/advisories/GHSA-jqfw-vq24-v9c3",
+          "severity": "low",
+          "cwe": [
+            "CWE-23",
+            "CWE-200",
+            "CWE-284"
+          ],
+          "cvss": {
+            "score": 0,
+            "vectorString": null
+          },
+          "range": "<=5.4.19"
+        },
+        {
+          "source": 1109132,
+          "name": "vite",
+          "dependency": "vite",
+          "title": "vite allows server.fs.deny bypass via backslash on Windows",
+          "url": "https://github.com/advisories/GHSA-93m4-6634-74q7",
+          "severity": "moderate",
+          "cwe": [
+            "CWE-22"
+          ],
+          "cvss": {
+            "score": 0,
+            "vectorString": null
+          },
+          "range": ">=4.5.3 <5.0.0"
+        },
+        {
+          "source": 1116229,
+          "name": "vite",
+          "dependency": "vite",
+          "title": "Vite Vulnerable to Path Traversal in Optimized Deps `.map` Handling",
+          "url": "https://github.com/advisories/GHSA-4w7w-66w2-5vf9",
+          "severity": "moderate",
+          "cwe": [
+            "CWE-22",
+            "CWE-200"
+          ],
+          "cvss": {
+            "score": 0,
+            "vectorString": null
+          },
+          "range": "<=6.4.1"
+        },
+        {
+          "source": 1120061,
+          "name": "vite",
+          "dependency": "vite",
+          "title": "launch-editor vulnerable to command injection via the crafted request on Windows",
+          "url": "https://github.com/advisories/GHSA-c27g-q93r-2cwf",
+          "severity": "high",
+          "cwe": [
+            "CWE-77"
+          ],
+          "cvss": {
+            "score": 0,
+            "vectorString": null
+          },
+          "range": "<=5.4.8"
+        },
+        {
+          "source": 1120784,
+          "name": "vite",
+          "dependency": "vite",
+          "title": "launch-editor: NTLMv2 hash disclosure via UNC path handling on Windows",
+          "url": "https://github.com/advisories/GHSA-v6wh-96g9-6wx3",
+          "severity": "moderate",
+          "cwe": [
+            "CWE-73",
+            "CWE-522"
+          ],
+          "cvss": {
+            "score": 0,
+            "vectorString": null
+          },
+          "range": "<=6.4.2"
+        },
+        {
+          "source": 1123525,
+          "name": "vite",
+          "dependency": "vite",
+          "title": "vite: `server.fs.deny` bypass on Windows alternate paths",
+          "url": "https://github.com/advisories/GHSA-fx2h-pf6j-xcff",
+          "severity": "high",
+          "cwe": [
+            "CWE-22",
+            "CWE-200"
+          ],
+          "cvss": {
+            "score": 7.5,
+            "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N"
+          },
+          "range": "<=6.4.2"
+        },
+        "esbuild"
+      ],
+      "effects": [
+        "@sveltejs/vite-plugin-svelte",
+        "@sveltejs/vite-plugin-svelte-inspector",
+        "@vitest/mocker",
+        "vite-node",
+        "vitest"
+      ],
+      "range": "<=6.4.2",
+      "nodes": [
+        "node_modules/vite",
+        "node_modules/vite-node/node_modules/vite",
+        "node_modules/vitest/node_modules/vite"
+      ],
+      "fixAvailable": {
+        "name": "vite",
+        "version": "8.3.4",
+        "isSemVerMajor": true
+      }
+    },
+    "vite-node": {
+      "name": "vite-node",
+      "severity": "moderate",
+      "isDirect": false,
+      "via": [
+        "vite"
+      ],
+      "effects": [
+        "vitest"
+      ],
+      "range": "<=2.2.0-beta.2",
+      "nodes": [
+        "node_modules/vite-node"
+      ],
+      "fixAvailable": {
+        "name": "vitest",
+        "version": "5.0.3",
+        "isSemVerMajor": true
+      }
+    },
+    "vitest": {
+      "name": "vitest",
+      "severity": "critical",
+      "isDirect": true,
+      "via": [
+        "@vitest/mocker",
+        {
+          "source": 1139528,
+          "name": "vitest",
+          "dependency": "vitest",
+          "title": "When Vitest UI server is listening, arbitrary file can be read and executed",
+          "url": "https://github.com/advisories/GHSA-5xrq-8626-4rwp",
+          "severity": "critical",
+          "cwe": [
+            "CWE-22",
+            "CWE-862"
+          ],
+          "cvss": {
+            "score": 9.8,
+            "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"
+          },
+          "range": "<3.2.6"
+        },
+        {
+          "source": 1193683,
+          "name": "vitest",
+          "dependency": "vitest",
+          "title": "Vitest: Path Traversal / Arbitrary File Read via @vitest/mocker Redirect Mock",
+          "url": "https://github.com/advisories/GHSA-82fw-gwwq-j7x9",
+          "severity": "moderate",
+          "cwe": [
+            "CWE-22"
+          ],
+          "cvss": {
+            "score": 5.9,
+            "vectorString": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:N/A:N"
+          },
+          "range": ">=2.1.0 <4.1.11"
+        },
+        "tinypool",
+        "vite",
+        "vite-node"
+      ],
+      "effects": [],
+      "range": "<=4.1.10",
+      "nodes": [
+        "node_modules/vitest"
+      ],
+      "fixAvailable": {
+        "name": "vitest",
+        "version": "5.0.3",
+        "isSemVerMajor": true
+      }
+    }
+  },
+  "metadata": {
+    "vulnerabilities": {
+      "info": 0,
+      "low": 0,
+      "moderate": 8,
+      "high": 5,
+      "critical": 2,
+      "total": 15
+    },
+    "dependencies": {
+      "prod": 110,
+      "dev": 189,
+      "optional": 118,
+      "peer": 0,
+      "peerOptional": 0,
+      "total": 310
+    }
+  }
+}

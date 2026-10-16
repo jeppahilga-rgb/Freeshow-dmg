@@ -1,0 +1,151 @@
+<script lang="ts">
+    import { onDestroy, setContext } from "svelte"
+    import type { StageLayout } from "../../../types/Stage"
+    import { allOutputs, outputs, stageShows } from "../../stores"
+    import { triggerClickOnEnterSpace } from "../../utils/clickable"
+    import { getAccess } from "../../utils/profile"
+    import { getSortedStageItems, shouldItemBeShown } from "../edit/scripts/itemHelpers"
+    import { clone } from "../helpers/array"
+    import Icon from "../helpers/Icon.svelte"
+    import { getStageOutputId, getStageResolution } from "../helpers/output"
+    import HiddenInput from "../inputs/HiddenInput.svelte"
+    import Zoomed from "../slide/Zoomed.svelte"
+    import SelectElem from "../system/SelectElem.svelte"
+    import { getSlideTextItems, stageItemToItem } from "./stage"
+    import Stagebox from "./Stagebox.svelte"
+    import { translateText } from "../../utils/language"
+
+    export let layout: StageLayout
+    export let id: string
+    export let columns = 1
+    export let active = false
+    export let list = false
+    export let selectable = true
+
+    const profile = getAccess("stage")
+    let readOnly = profile.global === "read" || profile[id] === "read"
+
+    let ratio = 1
+    $: stageOutputId = getStageOutputId($outputs)
+    $: resolution = getStageResolution(stageOutputId, $outputs)
+
+    function edit(e: any) {
+        if (readOnly) return
+
+        let name = e.detail.value
+        stageShows.update((a) => {
+            a[id].name = name
+            a[id].modified = Date.now()
+            return a
+        })
+    }
+
+    $: stageItems = getSortedStageItems(id, $stageShows[id])
+
+    let conditionsUpdater = 0
+    const updaterInterval = setInterval(() => {
+        if (!Array.isArray(stageItems)) return
+        if (stageItems.some((a) => a?.conditions)) conditionsUpdater++
+    }, 1000)
+    onDestroy(() => clearInterval(updaterInterval))
+
+    // item flash
+    let layoutMounted = false
+    setContext("layoutMounted", () => layoutMounted)
+    $: if (id) {
+        layoutMounted = false
+        setTimeout(() => {
+            layoutMounted = true
+        }, 100)
+    }
+</script>
+
+<!-- WIP duplicate of StageLayout.svelte (pretty much) -->
+<div class="main" class:active style="width: {100 / columns}%" class:list>
+    <div class="slide context #stage_slide{readOnly ? '_readonly' : ''}" class:disabled={layout.disabled} style={layout.settings.color ? `background-color: ${layout.settings.color};` : ""} tabindex={0} role="button" on:click on:keydown={triggerClickOnEnterSpace}>
+        <div style="width: 100%;">
+            <SelectElem id="stage" data={{ id }} {selectable}>
+                <Zoomed background={layout.items.length ? "black" : "transparent"} style="width: 100%;" {resolution} id={stageOutputId} isStage disableStyle center bind:ratio>
+                    {#each stageItems as item (item.id)}
+                        {#if (item.type || item.enabled !== false) && (!item.conditions?.showItem && !item.bindings?.length ? true : shouldItemBeShown(stageItemToItem(item), item.type === "slide_text" ? getSlideTextItems(layout, item, $outputs || $allOutputs) : [], { type: "stage" }, conditionsUpdater))}
+                            <Stagebox id={item.id} {item} {ratio} stageLayout={layout} disableStagePreview={true} />
+                        {/if}
+                    {/each}
+                </Zoomed>
+                <div class="label" style="position: relative;" data-title={layout.name}>
+                    {#if layout.password}
+                        <span style="position: absolute;left: 5px;" data-title={translateText("remote.password")}>
+                            <Icon id="locked" size={0.8} style="opacity: 0.5;" white />
+                        </span>
+                    {/if}
+
+                    <!-- no need to display index number -->
+                    <!-- <span style="position: absolute;display: contents;">{index + 1}</span> -->
+
+                    <span class="text">
+                        <HiddenInput value={layout.name} id={"stage_" + id} on:edit={edit} allowEmpty={false} allowEdit={!readOnly} />
+                    </span>
+                </div>
+            </SelectElem>
+        </div>
+    </div>
+</div>
+
+<style>
+    .main {
+        display: flex;
+        position: relative;
+        padding: 2px;
+    }
+    .main.list {
+        width: 100%;
+    }
+    .main.active {
+        outline: 2px solid var(--secondary-opacity);
+        outline-offset: -1px;
+        z-index: 2;
+    }
+
+    .slide {
+        background-color: #000000;
+        z-index: 0;
+        outline-offset: 0;
+        width: 100%;
+
+        position: relative;
+        display: flex;
+    }
+    .slide.disabled {
+        opacity: 0.2;
+    }
+
+    .slide :global(.isSelected) {
+        outline-offset: -2px;
+    }
+
+    .label {
+        background-color: var(--primary-darkest);
+
+        display: flex;
+        padding: 0 5px;
+        /* padding-bottom: 2px; */
+        font-size: 0.8em;
+        font-weight: bold;
+        align-items: center;
+        /* opacity: 0.8; */
+    }
+
+    .label .text {
+        width: 100%;
+        margin: 0 15px;
+        text-align: center;
+        overflow-x: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .text :global(p) {
+        margin: 4px;
+        text-align: center;
+    }
+</style>

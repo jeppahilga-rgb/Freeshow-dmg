@@ -1,0 +1,249 @@
+<script lang="ts">
+    import type { AccessType, Profile } from "../../../../types/Main"
+    import { actions, actionTags, activePopup, activeProfile, categories, folders, groups, overlayCategories, popupData, profiles, scenes, selectedProfile, stageShows, templateCategories, timerTags, variableTags } from "../../../stores"
+    import { translateText } from "../../../utils/language"
+    import { encodePassword } from "../../../utils/profile"
+    import { customIconsColors } from "../../../values/customIcons"
+    import { settingsTabs } from "../../../values/tabs"
+    import { clone, keysToID, sortByName } from "../../helpers/array"
+    import { history } from "../../helpers/history"
+    import Icon from "../../helpers/Icon.svelte"
+    import InputRow from "../../input/InputRow.svelte"
+    import MaterialButton from "../../inputs/MaterialButton.svelte"
+    import MaterialDropdown from "../../inputs/MaterialDropdown.svelte"
+    import MaterialMultiButtons from "../../inputs/MaterialMultiButtons.svelte"
+    import MaterialTextInput from "../../inputs/MaterialTextInput.svelte"
+    import MaterialToggleSwitch from "../../inputs/MaterialToggleSwitch.svelte"
+    import Center from "../../system/Center.svelte"
+
+    // set id after deletion
+    $: if (profileId !== "" && !$profiles[profileId]) profileId = ""
+
+    $: profileId = $selectedProfile || ""
+    $: currentProfile = $profiles[profileId] || clone(defaultProfile)
+
+    $: isAdmin = !$activeProfile
+
+    const defaultProfile: Profile = {
+        name: translateText("example.default"),
+        color: "",
+        image: "",
+        access: {}
+    }
+
+    // UPDATE
+
+    function updateAccess(key: string, id: string, accessType: AccessType) {
+        if (!isAdmin) return
+
+        let data = currentProfile.access
+
+        let accessData = data[key] || {}
+        if (id === "global" && accessType === "write" && !accessData[id]) accessData = {}
+
+        accessData[id] = accessType
+        if (accessType === "write") delete accessData[id]
+
+        data[key] = accessData
+        history({ id: "UPDATE", newData: { key: "access", data }, oldData: { id: profileId }, location: { page: "settings", id: "settings_profile", override: "profile_" + key } })
+
+        // if (key === "shows") updateShowsList($shows)
+    }
+
+    // ACCESS
+
+    const accessInputs = [
+        { value: "none", label: "profile.none", icon: "disable" },
+        { value: "read", label: "profile.read", icon: "eye" },
+        { value: "write", label: "profile.write", icon: "edit" }
+    ]
+    const accessInputsRW = [
+        { value: "read", label: "profile.read", icon: "eye" },
+        { value: "write", label: "profile.write", icon: "edit" }
+    ]
+
+    function getInputs(globalAccess: AccessType | undefined, id: string) {
+        const inputs = clone(accessInputs).map((a: any) => {
+            a.title = translateText(a.name)
+            delete a.name
+            return a
+        })
+
+        if (globalAccess === "none" || globalAccess === "read") inputs[2].disabled = true
+        if (globalAccess === "none") inputs[1].disabled = true
+
+        // remove "read"
+        if (id === "settings" || id === "groups") inputs.splice(1, 1)
+
+        // Hide/Show instead of None/Write
+        if (id === "settings" || id === "groups") {
+            inputs[0].label = "profile.hide"
+            inputs[1].label = "profile.show"
+            inputs[1].icon = "eye"
+        }
+
+        // only admin can change access
+        if (!isAdmin) inputs.forEach((input) => (input.disabled = true))
+
+        return inputs
+    }
+
+    function getSectionOptions(options: { value: string; label: string; icon?: string; disabled?: boolean }[], _updater: any) {
+        // only admin can change access
+        if (!isAdmin) return options.map((option) => ({ ...option, disabled: true }))
+        return options
+    }
+
+    function getAccessLevel(a: { [key: string]: AccessType }, id: string) {
+        const currentLocalLevel = a[id] || "write"
+        const currentGlobalLevel = a.global || "write"
+
+        if (currentGlobalLevel === "write") return currentLocalLevel
+        if (currentGlobalLevel === "read" && currentLocalLevel === "write") return "read"
+        if (currentGlobalLevel === "none") return "none"
+        return currentLocalLevel
+    }
+
+    /////
+
+    $: projectsList = sortByName(keysToID($folders).filter((a) => a.name && a.parent === "/")).map((a) => ({ ...a, icon: "folder" }))
+    $: projectsAccess = currentProfile.access.projects || {}
+
+    $: showsCategoryList = sortByName(keysToID($categories))
+        .filter((a) => a.name && !a.isArchive)
+        .map((a) => ({ ...a, color: customIconsColors[a.icon || ""] })) //  && !a.default
+    $: showsCategoryAccess = currentProfile.access.shows || {}
+
+    $: overlayCategoryList = sortByName(keysToID($overlayCategories))
+        .filter((a) => a.name)
+        .map((a) => ({ ...a, color: customIconsColors[a.icon || ""] }))
+    $: overlayCategoryAccess = currentProfile.access.overlays || {}
+
+    $: templateCategoryList = sortByName(keysToID($templateCategories))
+        .filter((a) => a.name)
+        .map((a) => ({ ...a, color: customIconsColors[a.icon || ""] }))
+    $: templateCategoryAccess = currentProfile.access.templates || {}
+
+    $: actionsList = sortByName(keysToID($actionTags))
+        .filter((a) => a.name)
+        .map((a) => ({ ...a, icon: "tag" }))
+    $: actionsAccess = currentProfile.access.actions || {}
+
+    $: timersList = sortByName(keysToID($timerTags))
+        .filter((a) => a.name)
+        .map((a) => ({ ...a, icon: "tag" }))
+    $: timersAccess = currentProfile.access.timers || {}
+
+    $: variablesList = sortByName(keysToID($variableTags))
+        .filter((a) => a.name)
+        .map((a) => ({ ...a, icon: "tag" }))
+    $: variablesAccess = currentProfile.access.variables || {}
+
+    $: scenesList = sortByName(keysToID($scenes))
+        .filter((a) => a.name)
+        .map((a) => ({ ...a, icon: "scene" }))
+    $: scenesAccess = currentProfile.access.scenes || {}
+
+    $: stageList = sortByName(keysToID($stageShows)).filter((a) => a.name)
+    $: stageAccess = currentProfile.access.stage || {}
+
+    $: groupsList = sortByName(keysToID($groups)).map((a) => {
+        let name = a.name
+        if (a.default) name = translateText("groups." + a.name)
+        return { id: a.id, name, color: a.color }
+    })
+    $: groupsAccess = currentProfile.access.groups || {}
+
+    // "display_settings" (can change position still), "connection" (can use still)
+    $: settingsList = settingsTabs.map((id) => ({ id, name: `settings.${id}`, icon: id }))
+    $: settingsAccess = currentProfile.access.settings || {}
+
+    ///
+
+    $: ACCESS_LISTS = [
+        { id: "projects", label: "remote.projects", icon: "project", access: projectsAccess, options: accessInputsRW, list: projectsList },
+        { id: "shows", label: "tabs.shows", icon: "shows", access: showsCategoryAccess, options: accessInputsRW, list: showsCategoryList },
+        // WIP AUDIO PLAYLISTS?
+        { id: "overlays", label: "tabs.overlays", icon: "overlays", access: overlayCategoryAccess, options: accessInputsRW, list: overlayCategoryList },
+        { id: "templates", label: "tabs.templates", icon: "templates", access: templateCategoryAccess, options: accessInputs, list: templateCategoryList },
+        // WIP SCRIPTURE?
+        // WIP CALENDAR?
+        { id: "actions", label: "tabs.actions", icon: "actions", access: actionsAccess, options: accessInputsRW, list: actionsList },
+        { id: "timers", label: "tabs.timers", icon: "timer", access: timersAccess, options: accessInputsRW, list: timersList },
+        { id: "variables", label: "tabs.variables", icon: "variable", access: variablesAccess, options: accessInputsRW, list: variablesList },
+        { id: "scenes", label: "tabs.scenes", icon: "scene", access: scenesAccess, options: accessInputsRW, list: scenesList },
+        { id: "stage", label: "menu.stage", icon: "stage", access: stageAccess, options: accessInputsRW, list: stageList },
+        { id: "groups", label: "tools.groups", icon: "groups", access: groupsAccess, options: [], list: groupsList },
+        { id: "settings", label: "menu.settings", icon: "settings", access: settingsAccess, options: [], list: settingsList }
+    ]
+
+    $: hasAdminPass = !!$profiles.admin?.password
+    function setAdminPassword(e: any) {
+        const password = e.detail
+        updateAdmin("password", password ? encodePassword(password) : "")
+    }
+
+    function updateAdmin(key: string, value: any) {
+        profiles.update((a) => {
+            if (!a.admin) a.admin = { name: "", color: "", image: "", access: {} }
+            ;(a.admin as any)[key] = value
+            return a
+        })
+    }
+
+    function updateProfile(key: string, value: any) {
+        if (!profileId) return
+        profiles.update((a) => {
+            if (!a[profileId]) a[profileId] = clone(currentProfile)
+            a[profileId][key] = value
+            return a
+        })
+    }
+
+    $: profilesList = Object.keys($profiles).filter((a) => a !== "admin")
+
+    $: currentAction = currentProfile?.action || ""
+    let actionOptions = Object.entries($actions)
+        .map(([id, a]) => ({ id, name: a.name }))
+        .sort((a, b) => a.name?.localeCompare(b.name))
+
+    function editAction() {
+        popupData.set({ id: currentAction })
+        activePopup.set("action")
+    }
+</script>
+
+{#if !profileId || !profilesList.length}
+    {#if profilesList.length && isAdmin}
+        <!-- Admin settings -->
+        <MaterialTextInput label="remote.password" disabled={hasAdminPass} value={hasAdminPass ? "*****" : ""} defaultValue="" on:change={setAdminPassword} />
+
+        <MaterialToggleSwitch label="profile.auto_open_last_used" checked={$profiles.admin?.autoOpenLastUsed || false} defaultValue={false} on:change={(e) => updateAdmin("autoOpenLastUsed", e.detail)} />
+    {/if}
+
+    <Center style="height: 82%;opacity: 0.1;">
+        <Icon id="admin" size={15} white />
+    </Center>
+{:else}
+    {#each ACCESS_LISTS as a}
+        <InputRow arrow={!!a.list?.length}>
+            <MaterialMultiButtons label={a.label} icon={a.icon} value={a.access.global || "write"} options={getSectionOptions(a.options, isAdmin)} on:click={(e) => updateAccess(a.id, "global", e.detail)} />
+
+            <div slot="menu">
+                {#each a.list as item}
+                    <InputRow style={item["color"] && !item["icon"] ? `border-left: 2px solid ${item["color"]};` : ""}>
+                        <MaterialMultiButtons label={item.name} icon={item["icon"] || ""} iconColor={item["color"] || ""} value={getAccessLevel(a.access, item.id)} options={getInputs(a.access.global, a.id)} on:click={(e) => updateAccess(a.id, item.id, e.detail)} noLabels />
+                    </InputRow>
+                {/each}
+            </div>
+        </InputRow>
+    {/each}
+
+    <!-- profile action -->
+    <InputRow style="margin-top: 20px;">
+        <MaterialDropdown label="midi.start_action" options={actionOptions.map((a) => ({ label: a.name, value: a.id }))} value={currentAction} on:change={(e) => updateProfile("action", e.detail)} allowEmpty />
+        {#if currentAction && $actions[currentAction]}
+            <MaterialButton title="titlebar.edit" icon="edit" on:click={editAction} />
+        {/if}
+    </InputRow>
+{/if}

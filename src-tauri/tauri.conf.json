@@ -1,0 +1,39 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "FreeShow+",
+  "version": "1.6.7-beta.1",
+  "identifier": "app.freeshow.tauri.preview",
+  "build": {
+    "beforeDevCommand": "npm run dev:frontend",
+    "devUrl": "http://127.0.0.1:3000",
+    "beforeBuildCommand": "npm run build:frontend",
+    "frontendDist": "../dist-tauri"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "dragDropEnabled": false,
+        "title": "FreeShow+",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 800,
+        "minHeight": 600,
+        "decorations": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self' asset: http://asset.localhost; script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; style-src 'self' 'unsafe-inline'; img-src 'self' asset: http://asset.localhost blob: data: https:; media-src 'self' freeshow-protected: http://freeshow-protected.localhost asset: http://asset.localhost blob: data: https:; connect-src 'self' freeshow-protected: http://freeshow-protected.localhost asset: http://asset.localhost ipc: http://ipc.localhost https: ws: wss:; frame-src https: asset: http://asset.localhost https://asset.localhost; font-src 'self' data: https:; worker-src 'self' blob:",
+      "assetProtocol": {
+        "enable": true,
+        "scope": [
+          "$HOME/**",
+          "G:/My Drive/Freeshow/**"
+        ]
+      }
+    }
+  },
+  "bundle": {
+    "active": false
+  }
+}

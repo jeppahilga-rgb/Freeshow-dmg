@@ -1,0 +1,206 @@
+<script lang="ts">
+    import { uid } from "uid"
+    import type { AspectRatio, Resolution, Styles } from "../../../../types/Settings"
+    import { activeDrawerTab, activeEdit, activePage, activeStyle, drawerTabsData, outputs, styles, templates } from "../../../stores"
+    import { translateText } from "../../../utils/language"
+    import { transitionTypes } from "../../../utils/transitions"
+    import { mediaExtensions } from "../../../values/extensions"
+    import { mediaFitOptions } from "../../edit/values/boxes"
+    import { clone } from "../../helpers/array"
+    import { history } from "../../helpers/history"
+    import { defaultLayers } from "../../helpers/output"
+    import { metadataDisplayValues } from "../../helpers/show"
+    import InputRow from "../../input/InputRow.svelte"
+    import Title from "../../input/Title.svelte"
+    import MaterialButton from "../../inputs/MaterialButton.svelte"
+    import MaterialColorInput from "../../inputs/MaterialColorInput.svelte"
+    import MaterialFilePicker from "../../inputs/MaterialFilePicker.svelte"
+    import MaterialNumberInput from "../../inputs/MaterialNumberInput.svelte"
+    import MaterialPopupButton from "../../inputs/MaterialPopupButton.svelte"
+    import MaterialToggleButtons from "../../inputs/MaterialToggleButtons.svelte"
+    import MaterialToggleSwitch from "../../inputs/MaterialToggleSwitch.svelte"
+
+    function updateStyle(e: any, key: string, currentId = "") {
+        let value = e?.detail ?? e?.target?.value ?? e
+
+        if (!currentId) currentId = styleId || "default"
+
+        // create a style if nothing exists
+        styles.update((a) => {
+            if (key === "metadata" && value?.display === "default") value = undefined
+            else if (!a[currentId]) a[currentId] = clone(currentStyle)
+
+            return a
+        })
+
+        history({ id: "UPDATE", newData: { key, data: value }, oldData: { id: currentId }, location: { page: "settings", id: "settings_style", override: "style_" + key } })
+
+        styleId = currentId
+    }
+
+    // pre v0.8.4: generate styles from old output "show" formatting
+    if (!Object.keys($styles).length) createStylesFromOutputs()
+    function createStylesFromOutputs() {
+        Object.keys($outputs).forEach((outputId) => {
+            let output = $outputs[outputId]
+
+            let currentOutputStyle = output.show || {}
+            if (!Object.keys(currentOutputStyle)?.length) return
+
+            currentOutputStyle.name = output.name
+
+            styles.update((a) => {
+                a[uid()] = currentOutputStyle
+
+                return a
+            })
+        })
+    }
+
+    const defaultStyle: Styles = {
+        name: translateText("example.default")
+    }
+
+    // set id after deletion
+    $: if (Object.keys($styles)?.length && !$styles[styleId]) styleId = $styles.default ? "default" : Object.keys($styles)[0]
+
+    $: styleId = $activeStyle || Object.keys($styles)[0] || ""
+    $: currentStyle = $styles[styleId] || clone(defaultStyle)
+
+    $: styleTemplate = $templates[currentStyle.template || ""] || {}
+    $: styleTemplateScripture = $templates[currentStyle.templateScripture || ""] || {}
+    $: templateBackground = styleTemplate.settings?.backgroundColor || styleTemplateScripture.settings?.backgroundColor
+    $: templateBackgroundImage = styleTemplate.settings?.backgroundPath || styleTemplateScripture.settings?.backgroundPath
+
+    function getAspectRatio(resolution: Resolution | undefined): AspectRatio {
+        if (!resolution || (resolution.width === 1920 && resolution.height === 1080)) return { width: 16, height: 9 }
+
+        let ratio = resolution
+        if (ratio.width > 100 || ratio.height > 100) {
+            let width = Number((ratio.width / ratio.height).toFixed(2))
+            if (width === 1.78) return { width: 16, height: 9 }
+            if (width === 1.33) return { width: 4, height: 3 }
+            return { width, height: 1 }
+        }
+
+        return ratio
+    }
+
+    // slide
+
+    $: activeLayers = Array.isArray(currentStyle.layers) ? currentStyle.layers : clone(defaultLayers)
+
+    $: mediaFit = currentStyle.fit || "contain"
+    $: defaultAspectRatio = getAspectRatio(currentStyle.resolution)
+    $: aspectRatio = currentStyle.aspectRatio || defaultAspectRatio
+    $: maxLines = Number(currentStyle.lines || 0)
+    $: metadata = currentStyle.metadata || {}
+    $: metadataDisplay = currentStyle.metadata?.display || "default"
+    $: textTransitionData = transitionTypes.find((a) => a.id === currentStyle.transition?.text?.type)
+
+    $: bgImage = currentStyle.backgroundImage
+    function editBackgroundImage() {
+        activeEdit.set({ type: "media", id: bgImage, items: [] })
+        activePage.set("edit")
+    }
+
+    $: transitionLabel = textTransitionData?.name || ""
+    $: mediaFitLabel = mediaFitOptions.find((a) => a.value === mediaFit)?.label || ""
+    $: aspectRatioLabel = aspectRatio.outputResolutionAsRatio ? "settings.output_resolution_ratio" : `${aspectRatio.width}:${aspectRatio.height}`
+
+    const layerOptions = [
+        { label: "preview.background", icon: "image", value: "background" },
+        // { label: "preview.foreground", icon: "image", value: "foreground" }, ?
+        { label: "preview.slide", icon: "slide", value: "slide" },
+        { label: "preview.overlays", icon: "overlays", value: "overlays" }
+    ]
+
+    // TEMPLATE OVERRIDE
+
+    $: templateOverride = currentStyle.template || ""
+    $: templateOverrideScripture = currentStyle.templateScripture || ""
+    $: scriptureTemplateLabel = currentStyle.templateScripture ? $templates[currentStyle.templateScripture || ""]?.name : currentStyle.templateScripture_2 ? $templates[currentStyle.templateScripture_2 || ""]?.name + " (2)" : currentStyle.templateScripture_3 ? $templates[currentStyle.templateScripture_3 || ""]?.name + " (3)" : currentStyle.templateScripture_4 ? $templates[currentStyle.templateScripture_4 || ""]?.name + " (4)" : ""
+
+    function editTemplate(id: string) {
+        activeDrawerTab.set("templates")
+        activeEdit.set({ type: "template", id, items: [] })
+        activePage.set("edit")
+    }
+    function updateScriptureTemplate(e) {
+        const type = e.detail?.type || ""
+        const value = e.detail?.value ?? e.detail
+
+        if (!value) {
+            updateStyle("", "templateScripture")
+            if (currentStyle.templateScripture_2) updateStyle("", "templateScripture_2")
+            if (currentStyle.templateScripture_3) updateStyle("", "templateScripture_3")
+            if (currentStyle.templateScripture_4) updateStyle("", "templateScripture_4")
+            return
+        }
+
+        updateStyle(value, "templateScripture" + type)
+    }
+
+    // METADATA
+
+    $: metadataDisplayLabel = metadataDisplay === "default" ? "example.default" : metadataDisplayValues.find((a) => a.id === metadataDisplay)?.name || ""
+
+    function updateCustom(e: any) {
+        updateStyle(e.value, e.key)
+    }
+</script>
+
+<MaterialColorInput label="edit.background_color{templateBackground ? ' <span style="color: var(--text);opacity: 0.5;font-weight: normal;font-size: 0.6em;">settings.overrided_value<span>' : ''}" value={currentStyle.background || "#000000"} defaultValue="#000000" on:input={(e) => updateStyle(e, "background")} />
+
+<InputRow arrow={!!(currentStyle.backgroundImage && (currentStyle.clearStyleBackgroundOnText || activeLayers.includes("slide")))}>
+    <MaterialFilePicker label="edit.background_media{templateBackgroundImage && bgImage ? ' <span style="color: var(--text);opacity: 0.5;font-weight: normal;">settings.overrided_value<span>' : ''}" value={bgImage} filter={{ name: "Media files", extensions: mediaExtensions }} on:change={(e) => updateStyle(e, "backgroundImage")} allowEmpty />
+    {#if bgImage}
+        <MaterialButton title="titlebar.edit" icon="edit" on:click={editBackgroundImage} />
+    {/if}
+
+    <div slot="menu">
+        <MaterialToggleSwitch label="settings.clear_style_background_on_text" checked={currentStyle.clearStyleBackgroundOnText} defaultValue={false} on:change={(e) => updateStyle(e.detail, "clearStyleBackgroundOnText")} />
+    </div>
+</InputRow>
+
+<MaterialPopupButton label="popup.transition" id="style" value={currentStyle.transition} name={transitionLabel} popupId="transition" icon="transition" on:change={(e) => updateStyle(e.detail || "", "transition")} allowEmpty />
+<MaterialPopupButton label="edit.media_fit" value={mediaFit} defaultValue="contain" name={mediaFitLabel} popupId="media_fit" icon="media_fit" data={{ updateCustom, styleId }} on:change={(e) => updateStyle(e.detail, "fit")} />
+<MaterialPopupButton label="settings.aspect_ratio" value={aspectRatio} defaultValue={defaultAspectRatio} name={aspectRatioLabel} popupId="aspect_ratio" icon="aspect_ratio" on:change={(e) => updateStyle(e.detail, "aspectRatio")} />
+
+<MaterialToggleButtons label="settings.active_layers" value={activeLayers} options={layerOptions} on:change={(e) => updateStyle(e.detail, "layers")} />
+<!-- WIP toggle meta -->
+
+{#if (currentStyle.volume ?? 100) !== 100}
+    <!-- Background -->
+    <Title label="preview.background" icon="image" />
+
+    <!-- style volume moved to per output volume -->
+    <MaterialNumberInput label="media.volume (%)" disabled={!activeLayers.includes("background")} value={currentStyle.volume ?? 100} defaultValue={100} max={100} on:change={(e) => updateStyle(e.detail, "volume")} />
+{/if}
+
+<!-- Slide -->
+<Title label="preview.slide" icon="slide" />
+
+<MaterialPopupButton label="settings.lines" disabled={!activeLayers.includes("slide")} value={maxLines} name={maxLines.toString()} popupId="max_lines" icon="lines" data={{ styleId }} on:change={(e) => updateStyle(e.detail, "lines")} allowEmpty />
+
+<InputRow>
+    <!-- WIP doubleClick ?? -->
+    <MaterialPopupButton label="settings.override_with_template" disabled={!activeLayers.includes("slide")} value={templateOverride} name={$templates[templateOverride]?.name} popupId="select_template" icon="templates" on:change={(e) => updateStyle(e.detail, "template")} allowEmpty />
+    {#if templateOverride && $templates[templateOverride]}
+        <MaterialButton title="titlebar.edit" icon="edit" on:click={() => editTemplate(templateOverride)} />
+    {/if}
+</InputRow>
+
+{#if $drawerTabsData?.scripture?.enabled !== false}
+    <InputRow>
+        <MaterialPopupButton id="scripture" label="settings.override_scripture_with_template" disabled={!activeLayers.includes("slide")} value={templateOverrideScripture || currentStyle.templateScripture_2 || currentStyle.templateScripture_3 || currentStyle.templateScripture_4} name={scriptureTemplateLabel} popupId="select_template" icon="templates" on:change={updateScriptureTemplate} allowEmpty />
+        {#if templateOverrideScripture && $templates[templateOverrideScripture]}
+            <MaterialButton title="titlebar.edit" icon="edit" on:click={() => editTemplate(templateOverrideScripture)} />
+        {/if}
+    </InputRow>
+{/if}
+
+<MaterialPopupButton id={styleId} label="meta.display_metadata" disabled={!activeLayers.includes("slide")} value={metadataDisplay} defaultValue="default" name={metadataDisplayLabel} popupId="metadata_display" icon="info" data={{ type: "style" }} on:change={(e) => updateStyle({ ...metadata, display: e.detail }, "metadata")} />
+
+<!-- Overlays -->
+<!-- <Title label="preview.overlays" icon="overlays" /> -->

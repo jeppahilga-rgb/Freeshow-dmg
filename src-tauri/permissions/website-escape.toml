@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-website-escape"
+description = "Allow a focused website to exit its parent fullscreen/output window."
+commands.allow = ["exit_fullscreen", "website_follow"]

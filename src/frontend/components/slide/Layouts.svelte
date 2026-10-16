@@ -1,0 +1,254 @@
+<script lang="ts">
+    import { uid } from "uid"
+    import type { ClickEvent } from "../../../types/Main"
+    import { changeSlidesView } from "../../show/slides"
+    import { actions, activePopup, activeProject, activeShow, alertMessage, editingProjectTemplate, labelsDisabled, projects, projectTemplates, showsCache, slidesOptions } from "../../stores"
+    import { translateText } from "../../utils/language"
+    import { getAccess } from "../../utils/profile"
+    import { getActionIcon, runAction } from "../actions/actions"
+    import Icon from "../helpers/Icon.svelte"
+    import T from "../helpers/T.svelte"
+    import { keysToID, sortByName } from "../helpers/array"
+    import { duplicate } from "../helpers/clipboard"
+    import { history } from "../helpers/history"
+    import { _show } from "../helpers/shows"
+    import { joinTime, secondsToTime } from "../helpers/time"
+    import FloatingInputs from "../input/FloatingInputs.svelte"
+    import HiddenInput from "../inputs/HiddenInput.svelte"
+    import MaterialButton from "../inputs/MaterialButton.svelte"
+    import MaterialZoom from "../inputs/MaterialZoom.svelte"
+    import SelectElem from "../system/SelectElem.svelte"
+    import Reference from "./Reference.svelte"
+
+    $: showId = $activeShow?.id || ""
+    $: currentShow = $showsCache[showId] || {}
+    $: layouts = currentShow.layouts
+    $: activeLayout = currentShow.settings?.activeLayout
+
+    $: isTemplate = !!$editingProjectTemplate
+    $: projectId = isTemplate ? $editingProjectTemplate : $activeProject
+    $: store = isTemplate ? projectTemplates : projects
+    $: project = $store[projectId!]
+
+    $: sortedLayouts = sortByName(keysToID(layouts || {}))
+
+    let totalTime = "0s"
+    let isTranslated = false
+    $: layoutSlides = layouts?.[activeLayout]?.slides || []
+    $: if (layoutSlides.length) getTotalTime()
+    function getTotalTime() {
+        let ref =
+            _show()
+                .layouts("active")
+                .ref()[0]
+                ?.filter((a) => a?.data && !a.data.disabled) || []
+        let total = ref.reduce((value, slide) => (value += Number(slide?.data?.nextTimer || 0)), 0)
+
+        totalTime = total ? (total > 59 ? joinTime(secondsToTime(total)) : total + "s") : "0s"
+
+        isTranslated = !!layoutSlides.find(
+            (a) =>
+                a?.id &&
+                _show()
+                    .slides([a.id])
+                    .get("items")
+                    ?.flat()
+                    ?.find((item) => item?.language)
+        )
+    }
+
+    function addLayout(e: ClickEvent) {
+        if (!e.detail.ctrl) {
+            duplicate({ id: "layout" })
+            return
+        }
+
+        history({ id: "UPDATE", newData: { key: "layouts", subkey: uid() }, oldData: { id: showId }, location: { page: "show", id: "show_layout" } })
+    }
+
+    function changeName(e: any) {
+        let currentLayout = e.detail?.id?.slice("layout_".length)
+        if (!currentLayout || isLocked) return
+
+        const newName = e.detail.value
+        history({ id: "UPDATE", newData: { key: "layouts", keys: [currentLayout], subkey: "name", data: newName }, oldData: { id: showId }, location: { page: "show", id: "show_key" } })
+
+        const showIndex = $activeShow?.index
+        if (project?.shows?.[showIndex ?? -1]?.layout === currentLayout) {
+            store.update((a) => {
+                if (a[projectId!]?.shows?.[showIndex!]) {
+                    a[projectId!].shows[showIndex!].layoutInfo = { name: newName }
+                }
+                return a
+            })
+        }
+    }
+
+    function setLayout(id: string, layoutInfo) {
+        if (!$showsCache[showId]) return
+
+        showsCache.update((a) => {
+            if (a[showId]) {
+                if (!a[showId].settings) a[showId].settings = { activeLayout: "", template: null }
+                a[showId].settings.activeLayout = id
+            }
+            return a
+        })
+
+        // set active layout in project
+        if (sortedLayouts?.length < 2) return
+        const showIndex = $activeShow?.index
+        if (($activeShow?.type === undefined || $activeShow?.type === "show") && showIndex !== undefined && projectId && project?.shows?.[showIndex]) {
+            store.update((a) => {
+                if (a[projectId!]?.shows?.[showIndex]) {
+                    a[projectId!].shows[showIndex].layout = id
+                    a[projectId!].shows[showIndex].layoutInfo = layoutInfo
+                }
+                return a
+            })
+        }
+    }
+
+    let edit: string | boolean = false
+
+    $: reference = currentShow.reference
+    $: multipleLayouts = sortedLayouts.length > 1
+
+    $: customActionId = currentShow?.settings?.customAction
+    $: customAction = customActionId && $actions[customActionId] ? customActionId : ""
+    function runCustomAction(edit = false) {
+        if (edit || !customAction) {
+            activePopup.set("custom_action")
+            return
+        }
+
+        runAction($actions[customAction], { source: "click" })
+    }
+
+    let profile = getAccess("shows")
+    $: isLocked = currentShow?.locked || profile.global === "read" || profile[currentShow?.category || ""] === "read"
+
+    $: referenceType = currentShow?.reference?.type
+</script>
+
+{#if referenceType === "lessons"}
+    <MaterialZoom hidden columns={$slidesOptions.columns} on:change={(e) => slidesOptions.set({ ...$slidesOptions, columns: e.detail })} />
+{:else if layoutSlides.length}
+    <FloatingInputs arrow={!isLocked} let:open>
+        <div slot="menu">
+            {#if Object.keys($actions).length && !reference && (!isLocked || customAction)}
+                <MaterialButton title="show.custom_action_tip" on:click={() => runCustomAction(true)}>
+                    <Icon size={1.1} id="actions" white={!customAction} />
+                </MaterialButton>
+
+                <div class="divider" />
+            {/if}
+
+            <MaterialButton on:click={() => activePopup.set("translate")} title="popup.translate">
+                <Icon size={1.1} id="translate" white={!isTranslated} />
+            </MaterialButton>
+        </div>
+
+        {#if !open && customAction}
+            <MaterialButton style="aspect-ratio: unset;" class="context #edit_custom_action" title="actions.run_action: {$actions[customAction].name}" on:click={() => runCustomAction()}>
+                <Icon size={1.1} id={getActionIcon(customAction)} />
+                <p>{$actions[customAction].name}</p>
+            </MaterialButton>
+
+            <div class="divider" />
+        {/if}
+
+        {#if isLocked}
+            <MaterialButton
+                title="show.locked"
+                on:click={() => {
+                    alertMessage.set(`${translateText(currentShow?.locked ? "show.locked" : "profile.locked")}<br><br>Unlock it by clicking the three dots in the top right corner.`)
+                    activePopup.set("alert")
+                }}
+            >
+                <Icon size={1.1} id="locked" />
+            </MaterialButton>
+        {:else}
+            {#if !open && (isTranslated || referenceType === "scripture")}
+                <MaterialButton on:click={() => activePopup.set("translate")} title="popup.translate">
+                    <Icon size={1.1} id="translate" white={!isTranslated} />
+                </MaterialButton>
+            {/if}
+
+            {#if open || totalTime !== "0s" || referenceType !== "scripture"}
+                <MaterialButton title="popup.next_timer{totalTime !== '0s' ? ': ' + totalTime : ''} [Ctrl+Shift+D]" on:click={() => activePopup.set("next_timer")}>
+                    <Icon size={1.1} id="clock" white={totalTime === "0s"} />
+                </MaterialButton>
+            {/if}
+        {/if}
+
+        {#if open}
+            <div class="divider"></div>
+        {/if}
+
+        <MaterialZoom hidden={!open} columns={$slidesOptions.columns} on:change={(e) => slidesOptions.set({ ...$slidesOptions, columns: e.detail })} />
+
+        <MaterialButton class="context #slideViews" title="show.change_view: show.{$slidesOptions.mode} [Ctrl+Shift+V]" on:click={changeSlidesView}>
+            <Icon size={1.3} id={$slidesOptions.mode} white={$slidesOptions.mode === "grid"} />
+        </MaterialButton>
+    </FloatingInputs>
+{/if}
+
+{#if $slidesOptions.mode !== "simple"}
+    <FloatingInputs style="max-width: {referenceType ? 90 : 70}%;" side="left" onlyOne={!reference && !multipleLayouts}>
+        {#if reference}
+            <Reference {showId} show={currentShow} />
+        {:else if layouts}
+            {#if multipleLayouts}
+                <span class="layouts">
+                    {#each sortedLayouts as layout}
+                        <SelectElem id="layout" data={layout.id} fill={!edit || edit === layout.id}>
+                            <MaterialButton
+                                class={isLocked ? "" : "context #layout"}
+                                on:click={() => {
+                                    if (!edit) setLayout(layout.id, { name: layout.name })
+                                }}
+                                isActive={activeLayout === layout.id}
+                            >
+                                <HiddenInput value={layout.name} id={"layout_" + layout.id} on:edit={changeName} bind:edit allowEdit={!isLocked} />
+                            </MaterialButton>
+                        </SelectElem>
+                    {/each}
+                </span>
+            {/if}
+
+            <MaterialButton disabled={!layoutSlides.length || isLocked || !layoutSlides?.some((a) => a && currentShow?.slides?.[a.id]?.group && currentShow?.slides?.[a.id]?.group !== ".")} on:click={addLayout} style="white-space: nowrap;" title="show.new_arrangement" center>
+                <Icon id="add" size={1.1} white={multipleLayouts} />
+                {#if !multipleLayouts && !$labelsDisabled}<T id="show.new_arrangement" />{/if}
+            </MaterialButton>
+        {/if}
+    </FloatingInputs>
+{/if}
+
+<style>
+    .layouts {
+        display: flex;
+        overflow-x: auto;
+    }
+
+    div {
+        display: flex;
+        justify-content: space-between;
+        width: 100%;
+        /* height: 50px; */
+        /* background-color: var(--primary); */
+        background-color: var(--primary-darkest);
+        /* border-top: 3px solid var(--primary-lighter); */
+    }
+
+    /* fixed height for consistent heights */
+    div :global(button) {
+        min-height: 28px;
+        padding: 0 0.8em !important;
+    }
+    div :global(button.active) {
+        /* color: var(--secondary) !important; */
+        /* color: rgb(255 255 255 /0.5) !important; */
+        background-color: var(--primary) !important;
+    }
+</style>

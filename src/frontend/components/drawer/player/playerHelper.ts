@@ -1,0 +1,137 @@
+export function trimPlayerId(id: string, type: "youtube" | "vimeo") {
+    if (type === "youtube") {
+        let value = id.trim()
+
+        try {
+            const url = new URL(value)
+            const host = url.hostname.replace("www.", "")
+
+            if (host === "youtu.be") {
+                const shortId = url.pathname.split("/").filter(Boolean)[0]
+                if (shortId) return shortId.slice(0, 11)
+            }
+
+            if (host.endsWith("youtube.com")) {
+                const videoId = url.searchParams.get("v")
+                if (videoId) return videoId.slice(0, 11)
+
+                const segments = url.pathname.split("/").filter(Boolean)
+                const routeIndex = segments.findIndex((segment) => ["shorts", "embed", "live"].includes(segment))
+
+                if (routeIndex >= 0 && segments[routeIndex + 1]) {
+                    return segments[routeIndex + 1].slice(0, 11)
+                }
+            }
+        } catch {
+            // invalid URL, continue with manual parsing
+        }
+
+        const queryMatch = value.match(/[?&]v=([^&]+)/)
+        if (queryMatch?.[1]) return queryMatch[1].slice(0, 11)
+
+        const shortMatch = value.match(/youtu\.be\/([^?&/]+)/)
+        if (shortMatch?.[1]) return shortMatch[1].slice(0, 11)
+
+        if (value.includes("?")) value = value.slice(0, value.indexOf("?"))
+        return value.slice(-11)
+    }
+
+    if (type === "vimeo") {
+        const value = id.trim()
+
+        try {
+            const url = new URL(value)
+
+            // Showcase URLs:
+            // vimeo.com/showcase/showcaseId?video=videoId
+            const queryVideoId = url.searchParams.get("video")
+            if (queryVideoId) return queryVideoId
+
+            // Normal URLs:
+            // vimeo.com/videoId
+            const segments = url.pathname.split("/").filter(Boolean)
+            const videoId = [...segments].reverse().find((segment) => /^\d+$/.test(segment))
+
+            if (videoId) return videoId
+        } catch {
+            // Plain Vimeo ID or non-URL input
+        }
+
+        return value
+    }
+
+    return id
+}
+
+// start time from a pasted video URL (?t=1234, &start=90, #t=1m30s)
+export function getUrlTimestamp(url: string): number {
+    const match = url.match(/[?&#](?:t|start)=([^&#]+)/)
+    return match ? parseTimestamp(match[1]) : 0
+}
+// seconds from "1234", "1234s", "1h2m3s" (YouTube/Vimeo URLs)
+// https://www.youtube.com/watch?v=X-AJdKty74M&t=82s
+// https://vimeo.com/144160599#t=1m30s
+function parseTimestamp(value: string): number {
+    const text = value.trim().toLowerCase()
+    const [, h = 0, m = 0, s = 0] = text.match(/^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s?)?$/) || []
+    return Number(h) * 3600 + Number(m) * 60 + Number(s)
+}
+
+let isLoadingIds: string[] = []
+
+export async function getYouTubeData(id: string): Promise<{ name: string; duration: number }> {
+    if (!id || id.length < 11) return { name: "", duration: 0 }
+
+    if (isLoadingIds.includes(id)) return { name: "", duration: 0 }
+    isLoadingIds.push(id)
+
+    try {
+        let name = ""
+        let duration = 0
+
+        const response = await fetch(`https://www.youtube.com/oembed?url=http://www.youtube.com/watch?v=${id}&format=json`)
+        if (response.ok) {
+            const data = await response.json()
+            name = data.title || ""
+        }
+
+        const watchResponse = await fetch(`https://www.youtube.com/watch?v=${id}`)
+        if (watchResponse.ok) {
+            const html = await watchResponse.text()
+            const match = html.match(/"lengthSeconds":"(\d+)"/)
+            if (match?.[1]) {
+                duration = parseInt(match[1], 10) || 0
+            }
+        }
+
+        return { name, duration }
+    } catch (error) {
+        console.error("Error fetching YouTube video data:", error)
+        return { name: "", duration: 0 }
+    } finally {
+        isLoadingIds = isLoadingIds.filter((loadingId) => loadingId !== id)
+    }
+}
+
+export async function getVimeoData(id: string): Promise<{ name: string; duration: number }> {
+    if (!id || id.length < 8) return { name: "", duration: 0 }
+
+    if (isLoadingIds.includes(id)) return { name: "", duration: 0 }
+    isLoadingIds.push(id)
+
+    try {
+        const vimeoUrl = `https://vimeo.com/${id}`
+        const response = await fetch(`https://vimeo.com/api/oembed.json?url=${vimeoUrl}`)
+        if (!response.ok) throw new Error("Failed to fetch video data")
+        const data = await response.json()
+        return {
+            name: data.title || "",
+            duration: data.duration || 0
+        }
+    } catch (error) {
+        console.error("Error fetching Vimeo video data:", error)
+        return { name: "", duration: 0 }
+    } finally {
+        isLoadingIds = isLoadingIds.filter((loadingId) => loadingId !== id)
+    }
+}

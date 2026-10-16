@@ -1,0 +1,57 @@
+@font-face { font-family: "Roboto"; src: url("./roboto/Roboto[wdth,wght].ttf") format('truetype'); font-style: normal; font-weight: 100.0 900.0; font-display: block; }
+@font-face { font-family: "Roboto"; src: url("./roboto/Roboto-Italic[wdth,wght].ttf") format('truetype'); font-style: italic; font-weight: 100.0 900.0; font-display: block; }
+@font-face { font-family: "Open Sans"; src: url("./opensans/OpenSans[wdth,wght].ttf") format('truetype'); font-style: normal; font-weight: 300.0 800.0; font-display: block; }
+@font-face { font-family: "Open Sans"; src: url("./opensans/OpenSans-Italic[wdth,wght].ttf") format('truetype'); font-style: italic; font-weight: 300.0 800.0; font-display: block; }
+@font-face { font-family: "Montserrat"; src: url("./montserrat/Montserrat[wght].ttf") format('truetype'); font-style: normal; font-weight: 100.0 900.0; font-display: block; }
+@font-face { font-family: "Montserrat"; src: url("./montserrat/Montserrat-Italic[wght].ttf") format('truetype'); font-style: italic; font-weight: 100.0 900.0; font-display: block; }
+@font-face { font-family: "Lato"; src: url("./lato/Lato-Thin.ttf") format('truetype'); font-style: normal; font-weight: 100; font-display: block; }
+@font-face { font-family: "Lato"; src: url("./lato/Lato-ThinItalic.ttf") format('truetype'); font-style: italic; font-weight: 100; font-display: block; }
+@font-face { font-family: "Lato"; src: url("./lato/Lato-ExtraLight.ttf") format('truetype'); font-style: normal; font-weight: 200; font-display: block; }
+@font-face { font-family: "Lato"; src: url("./lato/Lato-ExtraLightItalic.ttf") format('truetype'); font-style: italic; font-weight: 200; font-display: block; }
+@font-face { font-family: "Lato"; src: url("./lato/Lato-Light.ttf") format('truetype'); font-style: normal; font-weight: 300; font-display: block; }
+@font-face { font-family: "Lato"; src: url("./lato/Lato-LightItalic.ttf") format('truetype'); font-style: italic; font-weight: 300; font-display: block; }
+@font-face { font-family: "Lato"; src: url("./lato/Lato-Regular.ttf") format('truetype'); font-style: normal; font-weight: 400; font-display: block; }
+@font-face { font-family: "Lato"; src: url("./lato/Lato-Italic.ttf") format('truetype'); font-style: italic; font-weight: 400; font-display: block; }
+@font-face { font-family: "Lato"; src: url("./lato/Lato-Medium.ttf") format('truetype'); font-style: normal; font-weight: 500; font-display: block; }
+@font-face { font-family: "Lato"; src: url("./lato/Lato-MediumItalic.ttf") format('truetype'); font-style: italic; font-weight: 500; font-display: block; }
+@font-face { font-family: "Lato"; src: url("./lato/Lato-SemiBold.ttf") format('truetype'); font-style: normal; font-weight: 600; font-display: block; }
+@font-face { font-family: "Lato"; src: url("./lato/Lato-SemiBoldItalic.ttf") format('truetype'); font-style: italic; font-weight: 600; font-display: block; }
+@font-face { font-family: "Lato"; src: url("./lato/Lato-Bold.ttf") format('truetype'); font-style: normal; font-weight: 700; font-display: block; }
+@font-face { font-family: "Lato"; src: url("./lato/Lato-BoldItalic.ttf") format('truetype'); font-style: italic; font-weight: 700; font-display: block; }
+@font-face { font-family: "Lato"; src: url("./lato/Lato-ExtraBold.ttf") format('truetype'); font-style: normal; font-weight: 800; font-display: block; }
+@font-face { font-family: "Lato"; src: url("./lato/Lato-ExtraBoldItalic.ttf") format('truetype'); font-style: italic; font-weight: 800; font-display: block; }
+@font-face { font-family: "Lato"; src: url("./lato/Lato-Black.ttf") format('truetype'); font-style: normal; font-weight: 900; font-display: block; }
+@font-face { font-family: "Lato"; src: url("./lato/Lato-BlackItalic.ttf") format('truetype'); font-style: italic; font-weight: 900; font-display: block; }
+@font-face { font-family: "Poppins"; src: url("./poppins/Poppins-Thin.ttf") format('truetype'); font-style: normal; font-weight: 100; font-display: block; }
+@font-face { font-family: "Poppins"; src: url("./poppins/Poppins-ThinItalic.ttf") format('truetype'); font-style: italic; font-weight: 100; font-display: block; }
+@font-face { font-family: "Poppins"; src: url("./poppins/Poppins-ExtraLight.ttf") format('truetype'); font-style: normal; font-weight: 200; font-display: block; }
+@font-face { font-family: "Poppins"; src: url("./poppins/Poppins-ExtraLightItalic.ttf") format('truetype'); font-style: italic; font-weight: 200; font-display: block; }
+@font-face { font-family: "Poppins"; src: url("./poppins/Poppins-Light.ttf") format('truetype'); font-style: normal; font-weight: 300; font-display: block; }
+@font-face { font-family: "Poppins"; src: url("./poppins/Poppins-LightItalic.ttf") format('truetype'); font-style: italic; font-weight: 300; font-display: block; }
+@font-face { font-family: "Poppins"; src: url("./poppins/Poppins-Regular.ttf") format('truetype'); font-style: normal; font-weight: 400; font-display: block; }
+@font-face { font-family: "Poppins"; src: url("./poppins/Poppins-Italic.ttf") format('truetype'); font-style: italic; font-weight: 400; font-display: block; }
+@font-face { font-family: "Poppins"; src: url("./poppins/Poppins-Medium.ttf") format('truetype'); font-style: normal; font-weight: 500; font-display: block; }
+@font-face { font-family: "Poppins"; src: url("./poppins/Poppins-MediumItalic.ttf") format('truetype'); font-style: italic; font-weight: 500; font-display: block; }
+@font-face { font-family: "Poppins"; src: url("./poppins/Poppins-SemiBold.ttf") format('truetype'); font-style: normal; font-weight: 600; font-display: block; }
+@font-face { font-family: "Poppins"; src: url("./poppins/Poppins-SemiBoldItalic.ttf") format('truetype'); font-style: italic; font-weight: 600; font-display: block; }
+@font-face { font-family: "Poppins"; src: url("./poppins/Poppins-Bold.ttf") format('truetype'); font-style: normal; font-weight: 700; font-display: block; }
+@font-face { font-family: "Poppins"; src: url("./poppins/Poppins-BoldItalic.ttf") format('truetype'); font-style: italic; font-weight: 700; font-display: block; }
+@font-face { font-family: "Poppins"; src: url("./poppins/Poppins-ExtraBold.ttf") format('truetype'); font-style: normal; font-weight: 800; font-display: block; }
+@font-face { font-family: "Poppins"; src: url("./poppins/Poppins-ExtraBoldItalic.ttf") format('truetype'); font-style: italic; font-weight: 800; font-display: block; }
+@font-face { font-family: "Poppins"; src: url("./poppins/Poppins-Black.ttf") format('truetype'); font-style: normal; font-weight: 900; font-display: block; }
+@font-face { font-family: "Poppins"; src: url("./poppins/Poppins-BlackItalic.ttf") format('truetype'); font-style: italic; font-weight: 900; font-display: block; }
+@font-face { font-family: "Noto Sans"; src: url("./notosans/NotoSans[wdth,wght].ttf") format('truetype'); font-style: normal; font-weight: 100.0 900.0; font-display: block; }
+@font-face { font-family: "Noto Sans"; src: url("./notosans/NotoSans-Italic[wdth,wght].ttf") format('truetype'); font-style: italic; font-weight: 100.0 900.0; font-display: block; }
+@font-face { font-family: "Archivo"; src: url("./archivo/Archivo[wdth,wght].ttf") format('truetype'); font-style: normal; font-weight: 100.0 900.0; font-display: block; }
+@font-face { font-family: "Archivo"; src: url("./archivo/Archivo-Italic[wdth,wght].ttf") format('truetype'); font-style: italic; font-weight: 100.0 900.0; font-display: block; }
+@font-face { font-family: "Darker Grotesque"; src: url("./darkergrotesque/DarkerGrotesque[wght].ttf") format('truetype'); font-style: normal; font-weight: 300.0 900.0; font-display: block; }
+@font-face { font-family: "Hanken Grotesk"; src: url("./hankengrotesk/HankenGrotesk[wght].ttf") format('truetype'); font-style: normal; font-weight: 100.0 900.0; font-display: block; }
+@font-face { font-family: "Hanken Grotesk"; src: url("./hankengrotesk/HankenGrotesk-Italic[wght].ttf") format('truetype'); font-style: italic; font-weight: 100.0 900.0; font-display: block; }
+@font-face { font-family: "Inter"; src: url("./inter/Inter[opsz,wght].ttf") format('truetype'); font-style: normal; font-weight: 100.0 900.0; font-display: block; }
+@font-face { font-family: "Inter"; src: url("./inter/Inter-Italic[opsz,wght].ttf") format('truetype'); font-style: italic; font-weight: 100.0 900.0; font-display: block; }
+@font-face { font-family: "Raleway"; src: url("./raleway/Raleway[wght].ttf") format('truetype'); font-style: normal; font-weight: 100.0 900.0; font-display: block; }
+@font-face { font-family: "Raleway"; src: url("./raleway/Raleway-Italic[wght].ttf") format('truetype'); font-style: italic; font-weight: 100.0 900.0; font-display: block; }
+@font-face { font-family: "Red Hat Mono"; src: url("./redhatmono/RedHatMono[wght].ttf") format('truetype'); font-style: normal; font-weight: 300.0 700.0; font-display: block; }
+@font-face { font-family: "Red Hat Mono"; src: url("./redhatmono/RedHatMono-Italic[wght].ttf") format('truetype'); font-style: italic; font-weight: 300.0 700.0; font-display: block; }
+@font-face { font-family: "VT323"; src: url("./vt323/VT323-Regular.ttf") format('truetype'); font-style: normal; font-weight: 400; font-display: block; }
+@font-face { font-family: "Darker Grotesque SemiBold"; src: url("./darkergrotesque/DarkerGrotesque[wght].ttf") format('truetype'); font-style: normal; font-weight: 600; font-display: block; }

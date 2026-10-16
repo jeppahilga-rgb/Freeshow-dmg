@@ -1,0 +1,477 @@
+import { get } from "svelte/store"
+import { uid } from "uid"
+import { OUTPUT } from "../../types/Channels"
+import { Main } from "../../types/IPC/Main"
+import type { Output } from "../../types/Output"
+import type { SaveListSettings, SaveListSyncedSettings } from "../../types/Save"
+import type { Metadata, Themes } from "../../types/Settings"
+import { migrateAudioEffects } from "../audio/effects/audioEffectsHelpers"
+import { initAudioRouting } from "../audio/routing/audioRoutingInit"
+import { clone, keysToID } from "../components/helpers/array"
+import { checkFFmpeg, checkWindowCapture, setOutput, startScene, toggleOutputs } from "../components/helpers/output"
+import { migrateOutputsRtmp } from "../components/helpers/rtmpDestinations"
+import { defaultThemes } from "../components/settings/tabs/defaultThemes"
+import { sendMain } from "../IPC/main"
+import {
+    actionTags,
+    actions,
+    activePopup,
+    activeProject,
+    ai,
+    alertUpdates,
+    audioChannelsData,
+    audioEffectPresets,
+    audioEffects,
+    audioFolders,
+    audioPlaylists,
+    audioStreams,
+    autoOutput,
+    autosave,
+    calendarAddShow,
+    calendars,
+    categories,
+    cloudSyncData,
+    contentProviderData,
+    customFonts,
+    customMetadata,
+    customizedIcons,
+    deletedDefaults,
+    disabledServers,
+    drawSettings,
+    drawer,
+    drawerTabsData,
+    driveData,
+    effects,
+    effectsLibrary,
+    emitters,
+    formatNewShow,
+    fullColors,
+    globalRegexes,
+    globalTags,
+    groupNumbers,
+    groups,
+    interactions,
+    labelsDisabled,
+    language,
+    loaded,
+    loadedState,
+    lockedOverlays,
+    activeScenes,
+    maxConnections,
+    mediaFolders,
+    mediaOptions,
+    mediaTags,
+    metronome,
+    obsData,
+    openedFolders,
+    os,
+    outLocked,
+    outputs,
+    overlayCategories,
+    overlays,
+    playerTags,
+    playerVideos,
+    ports,
+    profiles,
+    projectView,
+    resized,
+    scenes,
+    scriptureSettings,
+    scriptures,
+    serverData,
+    showRecentlyUsedProjects,
+    slidesOptions,
+    sorted,
+    special,
+    splitLines,
+    styles,
+    templateCategories,
+    theme,
+    themes,
+    timeFormat,
+    timecode,
+    timeline,
+    timerTags,
+    timers,
+    transitionData,
+    variableTags,
+    variables,
+    version,
+    videoMarkers
+} from "./../stores"
+import { checkForUpdates } from "./checkForUpdates"
+import { isMainWindow, startAutosave } from "./common"
+import { setLanguage } from "./language"
+import { startRemoteController } from "./remoteController"
+import { send } from "./request"
+
+export function updateSyncedSettings(data: any) {
+    if (!data || !Object.keys(data).length) return
+
+    // pre v1.6.1 (triggers are now actions)
+    data = convertTriggersToActions(data)
+
+    // pre v1.6.6
+    if (data.companion) {
+        if (!get(serverData)?.companion) {
+            serverData.update((s) => ({ ...s, companion: data.companion }))
+        }
+        delete data.companion
+    }
+
+    Object.entries(data).forEach(([key, value]: any) => {
+        if (updateList[key as SaveListSyncedSettings]) updateList[key as SaveListSyncedSettings](value)
+        else console.info("RECEIVED UNKNOWN SETTINGS KEY:", key)
+    })
+
+    loadedState.set([...get(loadedState), "synced_settings"])
+}
+
+export function updateSettings(data: any) {
+    // pre v0.8.2 (data contains SaveListSyncedSettings, but it gets overwritten and removed on first save)
+
+    // pre v1.6.1 (equalizerConfig was not in audioEffects)
+    if (data.equalizerConfig && !data.audioEffects?.main) {
+        data.audioEffects = { main: { equalizer: clone(data.equalizerConfig) } }
+        delete data.equalizerConfig
+    }
+    // pre v1.6.5 (audioEffects was not in stack format)
+    if (data.audioEffects) {
+        data.audioEffects = migrateAudioEffects(data.audioEffects)
+    }
+
+    // pre v1.6.6
+    if (data.remotePassword !== undefined) {
+        if (!data.serverData) data.serverData = {}
+        if (!data.serverData.remote) data.serverData.remote = {}
+        if (!data.serverData.remote.password) data.serverData.remote.password = data.remotePassword
+        delete data.remotePassword
+    }
+
+    Object.entries(data).forEach(([key, value]: any) => {
+        if (updateList[key as SaveListSettings]) updateList[key as SaveListSettings](value)
+        else console.info("RECEIVED UNKNOWN SETTINGS KEY:", key)
+    })
+
+    if (!isMainWindow()) return
+
+    // output
+    if (data.outputs) {
+        // wait until content is loaded
+        setTimeout(
+            () => {
+                restartOutputs()
+                const delay = 1200
+                if (get(autoOutput)) setTimeout(() => toggleOutputs(null, { autoStartup: true }), get(os).platform === "darwin" ? delay + 300 : delay)
+                setTimeout(() => checkWindowCapture(true), get(os).platform === "darwin" ? delay + 300 + 500 : delay + 500)
+            },
+            get(os).platform === "darwin" ? 3500 : 2500
+        )
+    }
+
+    // remote
+    const disabled = data.disabledServers || {}
+    if (disabled.remote === undefined) disabled.remote = false
+    if (disabled.stage === undefined) disabled.stage = false
+    const customPorts: { [key: string]: number } = data.ports || { remote: 5510, stage: 5511 }
+    sendMain(Main.START, { ports: customPorts, max: data.maxConnections === undefined ? 10 : data.maxConnections, disabled, data: get(serverData) })
+
+    // theme
+    let currentTheme = get(themes)[data.theme]
+    if (currentTheme?.colors) {
+        // update colors (pre 0.9.2 or 1.4.9)
+        const pre092 = currentTheme.colors.secondary?.toLowerCase() === "#e6349c"
+        const pre149 = currentTheme.colors.primary?.toLowerCase() === "#292c36"
+        if (data.theme === "default" && (pre092 || pre149)) {
+            themes.update((a) => {
+                a.default = clone(defaultThemes.default)
+                currentTheme = a.default
+                return a
+            })
+        }
+
+        updateThemeValues(currentTheme)
+    }
+
+    // load all shows
+    // loadShows(Object.keys(get(shows)))
+
+    loaded.set(true)
+
+    window.api.send("LOADED")
+}
+
+// pre v1.6.1
+function convertTriggersToActions(data: any) {
+    const triggers: { [key: string]: { name: string; type: "http"; value: string } } = data.triggers || {}
+    if (!Object.keys(triggers).length) return data
+
+    let tagId = "triggertag"
+    if (typeof data.actionTags === "object") {
+        data.actionTags[tagId] = { name: "Triggers", color: "#abb4e6" }
+
+        // update store as this is non-synced settings
+        setTimeout(() => {
+            special.update((a) => {
+                a["actions_grid" + tagId] = true
+                return a
+            })
+        }, 1000)
+    }
+
+    const actions = data.midiIn || {}
+    Object.entries(triggers).forEach(([key, trigger]) => {
+        let emitterId = uid()
+        data.emitters[emitterId] = { name: "Trigger: " + trigger.name, type: "http", signal: { url: trigger.value, method: "GET", contentType: "", payload: "" } }
+        let triggerId = "emit_action:" + uid(5)
+
+        actions[key] = {
+            name: trigger.name,
+            triggers: [triggerId],
+            actionValues: { [triggerId]: { emitter: emitterId } },
+            tags: [tagId]
+        }
+    })
+
+    delete data.triggers
+    data.midiIn = actions
+    return data
+}
+
+export function restartOutputs(specificId = "") {
+    const allOutputs = keysToID(get(outputs))
+    const outputIds = specificId ? [specificId] : allOutputs.filter((a) => a.enabled).map(({ id }) => id)
+
+    outputIds.forEach((id: string) => {
+        const output: Output = get(outputs)[id]
+        if (!output) return
+
+        send(OUTPUT, ["CREATE"], { ...output, id })
+    })
+}
+
+export function updateThemeValues(themeValues: Themes) {
+    if (!themeValues?.colors) return
+
+    Object.entries(themeValues.colors || {}).forEach(([key, value]) => document.documentElement.style.setProperty("--" + key, value))
+    Object.entries(themeValues.font || {}).forEach(([key, value]) => {
+        if (key === "family" && (!value || value === "sans-serif")) value = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell, "Helvetica Neue", sans-serif'
+        document.documentElement.style.setProperty("--font-" + key, value)
+    })
+
+    // // border radius
+    // if (!themeValues.border) themeValues.border = {}
+    // // set to 0 if nothing is set
+    // if (themeValues.border?.radius === undefined) themeValues.border.radius = "0"
+    // Object.entries(themeValues.border).forEach(([key, value]) => document.documentElement.style.setProperty("--border-" + key, value))
+}
+
+const updateList: { [key in SaveListSettings | SaveListSyncedSettings]: any } = {
+    initialized: (v: any) => {
+        if (!v) {
+            // FIRST TIME USER
+            activePopup.set("initialize")
+        }
+    },
+    activeProject: (v: any) => {
+        activeProject.set(v)
+        if (v) projectView.set(false)
+    },
+
+    lockedOverlays: (v: any) => {
+        if (Array.isArray(v)) {
+            const map: { [id: string]: string[] } = {}
+            v.forEach((id) => (map[id] = []))
+            v = map
+        }
+
+        lockedOverlays.set(v || {})
+
+        // timeout to ensure outputs are initialized
+        setTimeout(() => {
+            Object.entries(v || {}).forEach(([id, outputIds]: any) => {
+                // only get locked overlays
+                if (!get(overlays)[id]?.locked) return
+
+                if (outputIds?.length) outputIds.forEach((outputId: string) => setOutput("overlays", [id], false, outputId, true))
+                else setOutput("overlays", [id], false, "", true)
+            })
+        }, 10)
+    },
+    activeScenes: (v: any) => {
+        activeScenes.set(v || {})
+
+        // timeout to ensure outputs are initialized
+        setTimeout(() => {
+            Object.entries(v || {}).forEach(([id, outputIds]: any) => startScene(id, outputIds))
+        }, 10)
+    },
+    language: (v: any) => {
+        language.set(v)
+        setLanguage(v)
+    },
+    customFonts: (v: any) => customFonts.set(v),
+    alertUpdates: (v: any) => {
+        alertUpdates.set(v !== false)
+        // make sure "special" is set before checking
+        setTimeout(() => checkForUpdates(get(version)), 50)
+    },
+    autoOutput: (v: any) => autoOutput.set(v),
+    maxConnections: (v: any) => maxConnections.set(v),
+    ports: (v: any) => ports.set(v),
+    disabledServers: (v: any) => disabledServers.set(v),
+    serverData: (v: any) => {
+        serverData.set(v)
+
+        if (v?.companion?.enabled) {
+            setTimeout(() => {
+                sendMain(Main.WEBSOCKET_START, { port: get(ports).companion, password: v.companion.password })
+            }, 3000)
+        }
+    },
+    autosave: (v: any) => {
+        autosave.set(v)
+        startAutosave()
+    },
+    timeFormat: (v: any) => timeFormat.set(v),
+    outputs: (v: any) => {
+        Object.keys(v).forEach((id: string) => {
+            delete v[id].out
+            if (v[id].webrtcData?.streaming) v[id].webrtcData.streaming = false
+            if (v[id].rtmpData?.streaming) v[id].rtmpData.streaming = false
+        })
+        migrateOutputsRtmp(v)
+        outputs.set(v)
+
+        // RTMP check
+        if (Object.values(v).some((out: any) => out.enabled && out.rtmp)) checkFFmpeg()
+    },
+    sorted: (v: any) => sorted.set(v),
+    styles: (v: any) => {
+        // convert settings (<= v1.5.7)
+        Object.values(v).forEach((style: any) => {
+            const metadata: Metadata = {}
+            if (style.displayMetadata) metadata.display = style.displayMetadata
+            if (style.metadataTemplate) metadata.template = style.metadataTemplate
+            if (Object.keys(metadata).length) style.metadata = metadata
+            delete style.metadataDivider
+            delete style.displayMetadata
+            delete style.metadataTemplate
+            delete style.messageTemplate
+        })
+
+        styles.set(v)
+    },
+    profiles: (v: any) => profiles.set(v),
+    audioFolders: (v: any) => audioFolders.set(v),
+    categories: (v: any) => categories.set(v),
+    drawer: (v: any) => drawer.set(v),
+    drawerTabsData: (v: any) => drawerTabsData.set(v),
+    drawSettings: (v: any) => drawSettings.set(v),
+    groupNumbers: (v: any) => groupNumbers.set(v),
+    fullColors: (v: any) => fullColors.set(v),
+    formatNewShow: (v: any) => formatNewShow.set(v),
+    groups: (v: any) => groups.set(v),
+    labelsDisabled: (v: any) => labelsDisabled.set(v),
+    mediaFolders: (v: any) => mediaFolders.set(v),
+    mediaOptions: (v: any) => mediaOptions.set(v),
+    openedFolders: (v: any) => openedFolders.set(v),
+    outLocked: (v: any) => outLocked.set(v),
+    overlayCategories: (v: any) => overlayCategories.set(v),
+    playerVideos: (v: any) => playerVideos.set(v),
+    resized: (v: any) => resized.set(v),
+    scriptures: (v: any) => scriptures.set(v),
+    scriptureSettings: (v: any) => scriptureSettings.set(v),
+    slidesOptions: (v: any) => slidesOptions.set(v),
+    splitLines: (v: any) => splitLines.set(v),
+    templateCategories: (v: any) => templateCategories.set(v),
+    timers: (v: any) => timers.set(v),
+    variables: (v: any) => variables.set(v),
+    scenes: (v: any) => scenes.set(v),
+    interactions: (v: any) => interactions.set(v),
+    audioStreams: (v: any) => audioStreams.set(v),
+    audioPlaylists: (v: any) => audioPlaylists.set(v),
+    theme: (v: any) => theme.set(v),
+    transitionData: (v: any) => transitionData.set(v),
+    audioChannelsData: (v: any) => audioChannelsData.set(v),
+    emitters: (v: any) => emitters.set(v),
+    midiIn: (v: any) => actions.set(v),
+    videoMarkers: (v: any) => videoMarkers.set(v),
+    calendars: (v: any) => calendars.set(v),
+    mediaTags: (v: any) => mediaTags.set(v),
+    playerTags: (v: any) => playerTags.set(v),
+    actionTags: (v: any) => actionTags.set(v),
+    variableTags: (v: any) => variableTags.set(v),
+    timerTags: (v: any) => timerTags.set(v),
+    customizedIcons: (v: any) => customizedIcons.set(v),
+    cloudSyncData: (v: any) => cloudSyncData.set(v),
+    driveData: (v: any) => driveData.set(v),
+    calendarAddShow: (v: any) => calendarAddShow.set(v),
+    metronome: (v: any) => metronome.set(v),
+    audioEffects: (v: any) => audioEffects.set(v),
+    audioEffectPresets: (v: any) => audioEffectPresets.set(v),
+    effectsLibrary: (v: any) => effectsLibrary.set(v),
+    globalTags: (v: any) => globalTags.set(v),
+    globalRegexes: (v: any) => globalRegexes.set(v),
+    customMetadata: (v: any) => customMetadata.set(v),
+    special: (v: any) => {
+        if (v.capitalize_words === undefined) v.capitalize_words = "Jesus, Lord" // God
+        if (v.autoUpdates) sendMain(Main.AUTO_UPDATE)
+        // don't backup when just initialized (or reset)
+        if (!v.autoBackupPrevious) v.autoBackupPrevious = Date.now()
+        if (v.startupProjectsList) {
+            // skip the "Recently used" list, and open "all projects"
+            // let "activeProject" setting update first
+            setTimeout(() => projectView.set(true))
+            showRecentlyUsedProjects.set(false)
+        }
+        if (v.remoteController) {
+            startRemoteController(v.remoteControllerId)
+        }
+
+        // DEPRECATED (migrate)
+        if (v.pcoLocalAlways) {
+            contentProviderData.update((a) => ({ ...a, planningcenter: { localAlways: true } }))
+            delete v.pcoLocalAlways
+        }
+
+        // DEPRECATED (migrate)
+        v.customUserDataLocation = true
+
+        // DEPRECATED (migrate)
+        let deletedDefaultsValue = get(deletedDefaults)
+        if (v.deletedTemplates) {
+            deletedDefaultsValue.templates = v.deletedTemplates
+            delete v.deletedTemplates
+        }
+        if (v.deletedOverlays) {
+            deletedDefaultsValue.overlays = v.deletedOverlays
+            delete v.deletedOverlays
+        }
+        if (v.deletedEffects) {
+            deletedDefaultsValue.effects = v.deletedEffects
+            delete v.deletedEffects
+        }
+        if (Object.keys(deletedDefaultsValue).length) deletedDefaults.set(deletedDefaultsValue)
+
+        // DEPRECATED (migrate) - only in 1.6.5-beta
+        if (v.calendars && !Object.keys(get(calendars)).length) {
+            calendars.set(v.calendars)
+            delete v.calendars
+        }
+
+        special.set(v)
+    },
+    timeline: (v: any) => timeline.set(v),
+    timecode: (v: any) => timecode.set(v),
+    // @ts-ignore - DEPERACTED (migrate)
+    chumsSyncCategories: (v: any) => {
+        if (v?.length > 1) contentProviderData.set({ ...get(contentProviderData), churchApps: { syncCategories: v } })
+    },
+    contentProviderData: (v: any) => contentProviderData.set(v),
+    obsData: (v: any) => obsData.set(v),
+    effects: (a: any) => effects.set(a),
+    deletedDefaults: (a: any) => deletedDefaults.set({ ...get(deletedDefaults), ...a }),
+    audioRouting: (v: any) => initAudioRouting(v),
+    ai: (a: any) => ai.set(a)
+}

@@ -1,0 +1,104 @@
+<script lang="ts">
+    import { uid } from "uid"
+    import type { Popups } from "../../../../types/Main"
+    import { activePopup, customizedIcons, popupData } from "../../../stores"
+    import { customIcons, customIconsColors } from "../../../values/customIcons"
+    import Icon from "../../helpers/Icon.svelte"
+    import T from "../../helpers/T.svelte"
+    import MaterialButton from "../../inputs/MaterialButton.svelte"
+    import Tip from "../Tip.svelte"
+
+    let colors = true
+
+    function click(icon: string) {
+        let isDefault = customIcons[icon]
+
+        customizedIcons.update((a) => {
+            if (isDefault) {
+                let disabledIcons = a.disabled
+                let iconIndex = disabledIcons.indexOf(icon)
+                if (iconIndex >= 0) disabledIcons.splice(iconIndex, 1)
+                else disabledIcons.push(icon)
+                a.disabled = disabledIcons
+            }
+
+            return a
+        })
+    }
+
+    async function importSVG() {
+        let text
+        try {
+            text = await navigator.clipboard.readText()
+        } catch (e) {
+            console.warn("Could not read clipboard:", e)
+        }
+        if (!text || !text.includes("<svg")) return
+
+        customizedIcons.update((a) => {
+            a.svg.push({ id: uid(), path: text })
+            return a
+        })
+    }
+
+    function deleteCustom(iconId: string) {
+        customizedIcons.update((a) => {
+            let iconIndex = a.svg.findIndex((a) => a.id === iconId)
+            if (iconIndex >= 0) a.svg.splice(iconIndex, 1)
+
+            return a
+        })
+    }
+
+    let back: Popups | null = $popupData.back || null
+    popupData.set({})
+</script>
+
+{#if back}
+    <MaterialButton class="popup-back" icon="back" iconSize={1.3} title="actions.back" on:click={() => activePopup.set(back)} />
+{/if}
+
+<Tip value="actions.click_disable" bottom={20} />
+
+<div class="grid">
+    {#each Object.keys(customIcons) as icon}
+        {@const color = colors && customIconsColors[icon] ? "color: " + customIconsColors[icon] + ";" : ""}
+        {@const disabled = $customizedIcons.disabled.includes(icon)}
+        <MaterialButton style="padding: 8px;" on:click={() => click(icon)} title={disabled ? "actions.enable" : "actions.disable"}>
+            <Icon id={icon} size={2} custom white style={disabled ? "opacity: 0.2;" : color} />
+        </MaterialButton>
+    {/each}
+
+    <MaterialButton variant="outlined" style="width: 100%;margin: 10px 0;" on:click={importSVG} center dark>
+        <Icon id="copy" size={1.2} />
+        <T id="actions.svg_clipboard" />
+    </MaterialButton>
+
+    {#if $customizedIcons.svg.length}
+        <div class="custom grid">
+            {#each $customizedIcons.svg as icon}
+                <MaterialButton style="padding: 12px;" on:click={() => deleteCustom(icon.id)} title="actions.delete">
+                    {@html icon.path}
+                </MaterialButton>
+            {/each}
+        </div>
+    {/if}
+</div>
+
+<style>
+    .grid {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 5px;
+        justify-content: center;
+    }
+
+    .custom :global(svg) {
+        width: 50px;
+        height: 50px;
+    }
+
+    .custom :global(button:not(.contained):not(.isActive):not(:disabled):hover) {
+        background-color: var(--red) !important;
+    }
+</style>

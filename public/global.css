@@ -1,0 +1,163 @@
+@import url("./fonts/google/fonts.css");
+
+/* custom CMG Sans */
+@font-face {
+    font-family: "CMGSans";
+    src: url("./fonts/CMGSans-Medium.woff2") format("woff2");
+}
+@font-face {
+    font-family: "CMGSans";
+    src: url("./fonts/CMGSans-Bold.woff2") format("woff2");
+    font-weight: bold;
+}
+@font-face {
+    font-family: "CMGSans";
+    src: url("./fonts/CMGSans-MediumItalic.woff2") format("woff2");
+    font-style: italic;
+}
+@font-face {
+    font-family: "CMGSans";
+    src: url("./fonts/CMGSans-BoldItalic.woff2") format("woff2");
+    font-weight: bold;
+    font-style: italic;
+}
+
+/* flag emojies */
+@font-face {
+    font-family: NotoColorEmojiLimited;
+    unicode-range: U+1F1E6-1F1FF;
+    src: url("https://cdn.jsdelivr.net/gh/googlefonts/noto-emoji@main/2D/fonts/NotoColorEmoji-flagsonly.ttf");
+}
+
+:root {
+    --primary: #242832;
+    --primary-lighter: #2f3542;
+    --primary-darker: #191923;
+    --primary-darkest: #12121c;
+    --text: #f0f0ff;
+    --textInvert: #131313;
+    --secondary: #f0008c;
+    --secondary-opacity: rgba(240, 0, 140, 0.5);
+    --secondary-text: #f0f0ff;
+    --transparent: #232530;
+
+    --accent: #90caf9;
+
+    --connected: #27a827;
+    --disconnected: #a82727;
+
+    --red: rgb(255 0 0 / 0.25);
+
+    --hover: rgb(255 255 255 / 0.05);
+    --focus: rgb(255 255 255 / 0.1);
+
+    /* https://css-tricks.com/snippets/css/system-font-stack/ */
+    --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
+    --font-size: 1em;
+
+    --navigation-width: 290px;
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    user-select: none;
+
+    outline-offset: -4px;
+    outline-color: var(--secondary);
+}
+
+html,
+body {
+    position: relative;
+    width: 100%;
+    height: 100%;
+}
+
+body {
+    display: flex;
+    flex-direction: column;
+    color: var(--text);
+    box-sizing: border-box;
+    /* gradient color background transition not easily possible */
+    /* https://stackoverflow.com/questions/6542212/use-css3-transitions-with-gradient-backgrounds */
+    transition: background-color 0.5s;
+
+    font-family: var(--font-family);
+    font-size: var(--font-size);
+}
+
+/* persistent resizing cursor */
+body[data-resizing],
+body[data-resizing] * {
+    cursor: var(--resizing-cursor) !important;
+    user-select: none !important;
+}
+
+/* scroll bar */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+    background: rgb(255 255 255 / 0.05);
+}
+
+::-webkit-scrollbar-thumb {
+    background: rgb(255 255 255 / 0.3);
+    border-radius: 6px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: rgb(255 255 255 / 0.5);
+}
+
+/* selection */
+::selection {
+    background-color: var(--secondary-opacity);
+}
+
+body.unfocused ::selection {
+    background-color: rgb(128 128 128 / 0.4);
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+    color: var(--secondary);
+    transition: color 0.5s;
+
+    text-overflow: ellipsis;
+    overflow: hidden;
+    white-space: nowrap;
+    font-weight: 600;
+}
+
+h1 {
+    font-weight: bold;
+}
+
+p {
+    text-overflow: ellipsis;
+    overflow: hidden;
+    white-space: nowrap;
+}
+
+/* CHECKERED */
+
+.checkered {
+    /* background-color: var(--transparent); */
+    background: repeating-conic-gradient(rgba(70, 70, 80, 0.15) 0% 25%, transparent 0% 50%) 50% / 26px 26px;
+}
+
+/* OPTIMIZED MODE */
+
+.isOptimized {
+    backdrop-filter: none !important;
+}

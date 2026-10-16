@@ -1,0 +1,53 @@
+name: Mac ARM port diagnostics
+
+# Manual only: this is a porting diagnostic, not a release pipeline.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mac-arm-port-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  port-check:
+    runs-on: macos-15
+    timeout-minutes: 45
+    env:
+      CARGO_BUILD_JOBS: 2
+      CARGO_INCREMENTAL: 0
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Verify ARM runner and install Rust target
+        shell: bash
+        run: |
+          test "$(uname -m)" = arm64
+          rustup toolchain install stable --profile minimal --target aarch64-apple-darwin
+          rustup default stable
+      - name: Install JavaScript dependencies without native install scripts
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Build frontend and backend JavaScript
+        run: npm run build:frontend
+      - name: Inventory platform work
+        run: node scripts/audit-macos-readiness.mjs
+      - name: Check native Apple Silicon compilation
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo check --locked --manifest-path src-tauri/Cargo.toml --target aarch64-apple-darwin 2>&1 | tee mac-arm-native-check.log
+      - name: Preserve diagnostics even when compilation fails
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mac-arm-port-diagnostics
+          path: |
+            mac-arm-native-check.log
+            ../output/MACOS-M3-READINESS.json
+          if-no-files-found: warn
+          retention-days: 7

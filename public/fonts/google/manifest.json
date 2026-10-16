@@ -1,0 +1,461 @@
+{
+  "repository": "https://github.com/google/fonts",
+  "commit": "67bc647ce1910e92f461bcc82aae30f21d21a9cc",
+  "records": [
+    {
+      "family": "Roboto",
+      "style": "normal",
+      "weight": "100.0 900.0",
+      "file": "roboto/Roboto[wdth,wght].ttf",
+      "bytes": 488584,
+      "sha256": "d7598e12c5dbef095ff8272cfc55da0250bd07fbdecbac8a530b9b277872a134"
+    },
+    {
+      "family": "Roboto",
+      "style": "italic",
+      "weight": "100.0 900.0",
+      "file": "roboto/Roboto-Italic[wdth,wght].ttf",
+      "bytes": 530944,
+      "sha256": "9725a847af6b460ffca162ae66d20dad48b01876137947180b42d7dcd7887182"
+    },
+    {
+      "family": "Open Sans",
+      "style": "normal",
+      "weight": "300.0 800.0",
+      "file": "opensans/OpenSans[wdth,wght].ttf",
+      "bytes": 532636,
+      "sha256": "36643644f318a812aab2d2ed3bb98f8cf0872527f835fe9398d95fe6b9adb878"
+    },
+    {
+      "family": "Open Sans",
+      "style": "italic",
+      "weight": "300.0 800.0",
+      "file": "opensans/OpenSans-Italic[wdth,wght].ttf",
+      "bytes": 583992,
+      "sha256": "fe269381e992f32e135801740998544d6235061e37c93ec067ad2be3edd5b17b"
+    },
+    {
+      "family": "Montserrat",
+      "style": "normal",
+      "weight": "100.0 900.0",
+      "file": "montserrat/Montserrat[wght].ttf",
+      "bytes": 744936,
+      "sha256": "0f7b311b2f3279e4eef9b2f968bcdbab6e28f4daeb1f049f4f278a902bcd82f7"
+    },
+    {
+      "family": "Montserrat",
+      "style": "italic",
+      "weight": "100.0 900.0",
+      "file": "montserrat/Montserrat-Italic[wght].ttf",
+      "bytes": 762376,
+      "sha256": "51607f316bc020e59f03cbf51543eecffbea501c0b31d73e5b82927c5cca442c"
+    },
+    {
+      "family": "Lato",
+      "style": "normal",
+      "weight": "100",
+      "file": "lato/Lato-Thin.ttf",
+      "bytes": 584056,
+      "sha256": "663c55bfe9a38270fff44da273bf4d792eafc3e7e1201f62c3064cad80c5d5e7"
+    },
+    {
+      "family": "Lato",
+      "style": "italic",
+      "weight": "100",
+      "file": "lato/Lato-ThinItalic.ttf",
+      "bytes": 608716,
+      "sha256": "e5e86e219ce6987b175470d94d57753a387d1860b635da6327a60e8d19a33beb"
+    },
+    {
+      "family": "Lato",
+      "style": "normal",
+      "weight": "200",
+      "file": "lato/Lato-ExtraLight.ttf",
+      "bytes": 626624,
+      "sha256": "989989b481db5df0827d90c51fd08d024fe7bc4e367046e2584a0d3b0487936d"
+    },
+    {
+      "family": "Lato",
+      "style": "italic",
+      "weight": "200",
+      "file": "lato/Lato-ExtraLightItalic.ttf",
+      "bytes": 653640,
+      "sha256": "fc56526250b9b64ce0908c52350b03e91b84afecb08fd2834a12e57b91abdb31"
+    },
+    {
+      "family": "Lato",
+      "style": "normal",
+      "weight": "300",
+      "file": "lato/Lato-Light.ttf",
+      "bytes": 643884,
+      "sha256": "cf2a774503baf418d584f49967bd160e1e03f087c13b25602f28024ec7788f08"
+    },
+    {
+      "family": "Lato",
+      "style": "italic",
+      "weight": "300",
+      "file": "lato/Lato-LightItalic.ttf",
+      "bytes": 657552,
+      "sha256": "700e6722fd14a10e7646347a6b14c486d4c364a373ba61c70e0b5ccee7811635"
+    },
+    {
+      "family": "Lato",
+      "style": "normal",
+      "weight": "400",
+      "file": "lato/Lato-Regular.ttf",
+      "bytes": 656568,
+      "sha256": "d636e4683231f931eda222d588e944d082bfd3bdba02f928bee461c0f185b251"
+    },
+    {
+      "family": "Lato",
+      "style": "italic",
+      "weight": "400",
+      "file": "lato/Lato-Italic.ttf",
+      "bytes": 722900,
+      "sha256": "e399c44efe1387100531d26c7e4800c5d12251b890d6654a3098c7c679cb1786"
+    },
+    {
+      "family": "Lato",
+      "style": "normal",
+      "weight": "500",
+      "file": "lato/Lato-Medium.ttf",
+      "bytes": 636396,
+      "sha256": "d3ac182a6833e005745dd75679fbad081c0b12535df4e93ad8ed57817a31a338"
+    },
+    {
+      "family": "Lato",
+      "style": "italic",
+      "weight": "500",
+      "file": "lato/Lato-MediumItalic.ttf",
+      "bytes": 694924,
+      "sha256": "ecbce6cffa42d8a67afeb27a9d6e85d515e81481d4b2cece989e833a48048405"
+    },
+    {
+      "family": "Lato",
+      "style": "normal",
+      "weight": "600",
+      "file": "lato/Lato-SemiBold.ttf",
+      "bytes": 668548,
+      "sha256": "71b8b7decbe75a881ed267be539d402bd1e9420b799658aada4e0d1bd5af803c"
+    },
+    {
+      "family": "Lato",
+      "style": "italic",
+      "weight": "600",
+      "file": "lato/Lato-SemiBoldItalic.ttf",
+      "bytes": 697364,
+      "sha256": "5adeb6b334d8fb99ef053bc052b952773d544315e0e1d668a12c0ce8bd51375c"
+    },
+    {
+      "family": "Lato",
+      "style": "normal",
+      "weight": "700",
+      "file": "lato/Lato-Bold.ttf",
+      "bytes": 656544,
+      "sha256": "8a0aace75d33794eece4b28187bfc1df0bbd2888b5d8a56e01788c8d65d16be1"
+    },
+    {
+      "family": "Lato",
+      "style": "italic",
+      "weight": "700",
+      "file": "lato/Lato-BoldItalic.ttf",
+      "bytes": 698364,
+      "sha256": "62c1b7f0d2e74b45960154c3520efc337b553db0961bfdc950d5618334596cc8"
+    },
+    {
+      "family": "Lato",
+      "style": "normal",
+      "weight": "800",
+      "file": "lato/Lato-ExtraBold.ttf",
+      "bytes": 613920,
+      "sha256": "61018de62bdaf90d4ac80b1d53c5c130756c8e9219aea3d2773fc9bd5869af97"
+    },
+    {
+      "family": "Lato",
+      "style": "italic",
+      "weight": "800",
+      "file": "lato/Lato-ExtraBoldItalic.ttf",
+      "bytes": 671876,
+      "sha256": "a42b384b9c37913a61023e3a47c07fead26e776127bbc9e6a0c96fe413089374"
+    },
+    {
+      "family": "Lato",
+      "style": "normal",
+      "weight": "900",
+      "file": "lato/Lato-Black.ttf",
+      "bytes": 664748,
+      "sha256": "808c62839c62dbce7de689af7603666fc7f8b81e0df537d8a5212c87580d4337"
+    },
+    {
+      "family": "Lato",
+      "style": "italic",
+      "weight": "900",
+      "file": "lato/Lato-BlackItalic.ttf",
+      "bytes": 698264,
+      "sha256": "3214f75bf96783a571bd25338c867c669e7c5e7c08a227f18a7b63766d6e6cbe"
+    },
+    {
+      "family": "Poppins",
+      "style": "normal",
+      "weight": "100",
+      "file": "poppins/Poppins-Thin.ttf",
+      "bytes": 163672,
+      "sha256": "6d8e5d9d29140cc93e321745fa1243c67889e6bc3639ec34db64f3da7a496352"
+    },
+    {
+      "family": "Poppins",
+      "style": "italic",
+      "weight": "100",
+      "file": "poppins/Poppins-ThinItalic.ttf",
+      "bytes": 189552,
+      "sha256": "46df80ac970f5e84829b868d283878b4d97e289c7b1245541d8bbf66b5d670a8"
+    },
+    {
+      "family": "Poppins",
+      "style": "normal",
+      "weight": "200",
+      "file": "poppins/Poppins-ExtraLight.ttf",
+      "bytes": 163568,
+      "sha256": "55c03314cc754e26f741f97890e5e9cbe3b3278fe3abcecfecafd60111b2643d"
+    },
+    {
+      "family": "Poppins",
+      "style": "italic",
+      "weight": "200",
+      "file": "poppins/Poppins-ExtraLightItalic.ttf",
+      "bytes": 188748,
+      "sha256": "7171a17e4cda8f6ded78a7a931f9b7f38987057f3ffd1fe07a71528ad0f01e49"
+    },
+    {
+      "family": "Poppins",
+      "style": "normal",
+      "weight": "300",
+      "file": "poppins/Poppins-Light.ttf",
+      "bytes": 161936,
+      "sha256": "650ba57fa99d12ec40c31ccfb680be656be4497fbe14164617d67e32ffe9cd46"
+    },
+    {
+      "family": "Poppins",
+      "style": "italic",
+      "weight": "300",
+      "file": "poppins/Poppins-LightItalic.ttf",
+      "bytes": 186976,
+      "sha256": "b8f9c5be59723fadf8e5447fa1245c2c53b60a3464a24d6ece9ee3c283d8917b"
+    },
+    {
+      "family": "Poppins",
+      "style": "normal",
+      "weight": "400",
+      "file": "poppins/Poppins-Regular.ttf",
+      "bytes": 160316,
+      "sha256": "7e65201e9b79159e2300267cc885e16c8dcef2424cdfa09a29bfb0980a94a7ba"
+    },
+    {
+      "family": "Poppins",
+      "style": "italic",
+      "weight": "400",
+      "file": "poppins/Poppins-Italic.ttf",
+      "bytes": 184544,
+      "sha256": "4fa76ae75b40f926420514044722cb97f32186cafd3b38263cc34dad7174d46d"
+    },
+    {
+      "family": "Poppins",
+      "style": "normal",
+      "weight": "500",
+      "file": "poppins/Poppins-Medium.ttf",
+      "bytes": 158576,
+      "sha256": "90373e7d838d32468438fc3e152dca0bdb12edcab99ea639f158790b1ba1fd05"
+    },
+    {
+      "family": "Poppins",
+      "style": "italic",
+      "weight": "500",
+      "file": "poppins/Poppins-MediumItalic.ttf",
+      "bytes": 183012,
+      "sha256": "765addf6c7c11ec3c54325cacd68cabd05df8e4b6455302d812a9b9bafd1c614"
+    },
+    {
+      "family": "Poppins",
+      "style": "normal",
+      "weight": "600",
+      "file": "poppins/Poppins-SemiBold.ttf",
+      "bytes": 157312,
+      "sha256": "d3bf1bdaf0550e83da9ac0b1d1d9fe6db086835a83aa28578e609a394b9a0286"
+    },
+    {
+      "family": "Poppins",
+      "style": "italic",
+      "weight": "600",
+      "file": "poppins/Poppins-SemiBoldItalic.ttf",
+      "bytes": 181108,
+      "sha256": "16bb118aa232c9a13fa238027d24d7854dd1a1d9cbaf99b17fec4388d56b432c"
+    },
+    {
+      "family": "Poppins",
+      "style": "normal",
+      "weight": "700",
+      "file": "poppins/Poppins-Bold.ttf",
+      "bytes": 155996,
+      "sha256": "983676516167748b74de6f4771fb384c664fd913acb8b471122ecacf5da5ea6c"
+    },
+    {
+      "family": "Poppins",
+      "style": "italic",
+      "weight": "700",
+      "file": "poppins/Poppins-BoldItalic.ttf",
+      "bytes": 179108,
+      "sha256": "3572ac8116a0ac7317d342262b29937bcbaf94d8f03f90df6fe666fa7e2fb43a"
+    },
+    {
+      "family": "Poppins",
+      "style": "normal",
+      "weight": "800",
+      "file": "poppins/Poppins-ExtraBold.ttf",
+      "bytes": 154836,
+      "sha256": "f2ab17c1a63a0ecc12c2461848fc8a469395e3cd2d641803e889c643d9f958e1"
+    },
+    {
+      "family": "Poppins",
+      "style": "italic",
+      "weight": "800",
+      "file": "poppins/Poppins-ExtraBoldItalic.ttf",
+      "bytes": 176468,
+      "sha256": "dc00a2eb988373e9f4e99bf8ff76c6315ee21d36b341cbbff024e4c18cc7ac03"
+    },
+    {
+      "family": "Poppins",
+      "style": "normal",
+      "weight": "900",
+      "file": "poppins/Poppins-Black.ttf",
+      "bytes": 153440,
+      "sha256": "d82aaaf98a9283f9a8edd24e51173337d8eaf09e25cd3d98831f8ec8461748a1"
+    },
+    {
+      "family": "Poppins",
+      "style": "italic",
+      "weight": "900",
+      "file": "poppins/Poppins-BlackItalic.ttf",
+      "bytes": 174116,
+      "sha256": "f4852ca89c29f69d800e14f097ed4d1f0a0cc454e9f77d73bfd6db1f71c287a0"
+    },
+    {
+      "family": "Noto Sans",
+      "style": "normal",
+      "weight": "100.0 900.0",
+      "file": "notosans/NotoSans[wdth,wght].ttf",
+      "bytes": 2049096,
+      "sha256": "bfb7bb691513f12e734dc346c03a03f784912432d7e3fa8e56efcf906fe86b3d"
+    },
+    {
+      "family": "Noto Sans",
+      "style": "italic",
+      "weight": "100.0 900.0",
+      "file": "notosans/NotoSans-Italic[wdth,wght].ttf",
+      "bytes": 2322640,
+      "sha256": "58e6e0ebd1931b29a365aa2d3e2ee9a9e831a3af7cf3ad1462d4e72154f0b291"
+    },
+    {
+      "family": "Archivo",
+      "style": "normal",
+      "weight": "100.0 900.0",
+      "file": "archivo/Archivo[wdth,wght].ttf",
+      "bytes": 658596,
+      "sha256": "0e094a7d3c7c4c25cf1310c4b30014f1dae9332220b1c2c88f4fa996f0b05053"
+    },
+    {
+      "family": "Archivo",
+      "style": "italic",
+      "weight": "100.0 900.0",
+      "file": "archivo/Archivo-Italic[wdth,wght].ttf",
+      "bytes": 741368,
+      "sha256": "305d13b4eb80e62f7d517f78d7c045250d977552a420f2dbed906f314e761305"
+    },
+    {
+      "family": "Darker Grotesque",
+      "style": "normal",
+      "weight": "300.0 900.0",
+      "file": "darkergrotesque/DarkerGrotesque[wght].ttf",
+      "bytes": 91516,
+      "sha256": "ed61c00a14f571096a8c03d00f91d37907df9d55da7cd7444914353ca224cb86"
+    },
+    {
+      "family": "Hanken Grotesk",
+      "style": "normal",
+      "weight": "100.0 900.0",
+      "file": "hankengrotesk/HankenGrotesk[wght].ttf",
+      "bytes": 132892,
+      "sha256": "813b3f8fa0965405669a89b38e51bbefd95eef6b8e20d1cb2d8c10cce062662f"
+    },
+    {
+      "family": "Hanken Grotesk",
+      "style": "italic",
+      "weight": "100.0 900.0",
+      "file": "hankengrotesk/HankenGrotesk-Italic[wght].ttf",
+      "bytes": 139388,
+      "sha256": "ae5731726ff75301a3cb63f2e98d1babc77d55ab09fb8e229ca75f5bd46fbe32"
+    },
+    {
+      "family": "Inter",
+      "style": "normal",
+      "weight": "100.0 900.0",
+      "file": "inter/Inter[opsz,wght].ttf",
+      "bytes": 876576,
+      "sha256": "29160a80ff49ddcab2c97711247e08b1fab27a484a329ce8b813d820dc559031"
+    },
+    {
+      "family": "Inter",
+      "style": "italic",
+      "weight": "100.0 900.0",
+      "file": "inter/Inter-Italic[opsz,wght].ttf",
+      "bytes": 906596,
+      "sha256": "acd98e64795781b2058f07b18475e0ecee2a0fe2b42a49e2f9e37d0d6bf66ce6"
+    },
+    {
+      "family": "Raleway",
+      "style": "normal",
+      "weight": "100.0 900.0",
+      "file": "raleway/Raleway[wght].ttf",
+      "bytes": 312352,
+      "sha256": "8bbcc3eb8275c388f4bcd998832f8a4b943eadbaf6a595205312774b5951aefb"
+    },
+    {
+      "family": "Raleway",
+      "style": "italic",
+      "weight": "100.0 900.0",
+      "file": "raleway/Raleway-Italic[wght].ttf",
+      "bytes": 318476,
+      "sha256": "96629caf2202183fab46c70237055a7d67e6a5400b85413d45a77ed6f2a0770c"
+    },
+    {
+      "family": "Red Hat Mono",
+      "style": "normal",
+      "weight": "300.0 700.0",
+      "file": "redhatmono/RedHatMono[wght].ttf",
+      "bytes": 68356,
+      "sha256": "253377ac29ccce89cb1b5fb297c69812ffe993b0c436322b3656323ff30fd14f"
+    },
+    {
+      "family": "Red Hat Mono",
+      "style": "italic",
+      "weight": "300.0 700.0",
+      "file": "redhatmono/RedHatMono-Italic[wght].ttf",
+      "bytes": 71768,
+      "sha256": "bdb184e308ec6dfb2790a5ec6a0b1aceb2aca32b95db447873451934eb3517b7"
+    },
+    {
+      "family": "VT323",
+      "style": "normal",
+      "weight": "400",
+      "file": "vt323/VT323-Regular.ttf",
+      "bytes": 153116,
+      "sha256": "cf4de751ada78ceac033dbe16a687742939995b77bc2a052ae17a4957958594d"
+    }
+  ],
+  "aliases": [
+    {
+      "family": "Darker Grotesque SemiBold",
+      "source": "Darker Grotesque",
+      "weight": "600"
+    }
+  ]
+}

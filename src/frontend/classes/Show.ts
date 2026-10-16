@@ -1,0 +1,51 @@
+import { get } from "svelte/store"
+import { uid } from "uid"
+import type { Show } from "../../types/Show"
+import { _show } from "../components/helpers/shows"
+import { activeShow, templates } from "../stores"
+import { translateText } from "../utils/language"
+
+export class ShowObj implements Show {
+    name: string
+    origin?: string
+    private?: boolean
+    reference?: any
+    category: any
+    settings: any
+    timestamps: any
+    quickAccess?: any
+    metadata?: {
+        // override: boolean
+        // display: string
+        // template: string
+        tags?: string[]
+    }
+    meta: any
+    slides: any
+    layouts: any
+    media: any
+
+    constructor(isPrivate = false, category: null | string = null, layoutId: string = uid(), created: number = new Date().getTime(), template: string | boolean = true) {
+        if (template !== false) {
+            // get template from active show (if it's not default with the "Header" template)
+            if (typeof template !== "string" && get(activeShow)?.id !== "default") template = _show().get("settings.template") || null
+            else if (template === true) template = ""
+            if (!template && get(templates).default) template = "default"
+        }
+
+        this.name = ""
+        this.private = isPrivate
+        this.category = category
+        this.settings = { activeLayout: layoutId, template }
+        this.timestamps = {
+            created,
+            modified: null,
+            used: null
+        }
+        this.quickAccess = {}
+        this.meta = {}
+        this.slides = {}
+        this.layouts = { [layoutId]: { name: translateText("example.default"), notes: "", slides: [] } }
+        this.media = {}
+    }
+}
