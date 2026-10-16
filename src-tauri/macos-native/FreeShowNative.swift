@@ -69,7 +69,7 @@ final class Capture: NSObject, SCStreamOutput, SCStreamDelegate {
         }
     }
 }
-@main struct Main {
+@main @MainActor struct Main {
     static func main() async {
         let args=CommandLine.arguments
         do {
@@ -77,6 +77,17 @@ final class Capture: NSObject, SCStreamOutput, SCStreamDelegate {
             if args[1] == "protect" || args[1] == "unprotect" {
                 guard args.count==3 else { fail("Missing credential namespace") }
                 try protect(args[1]=="unprotect",args[2]); return
+            }
+            if args[1] == "spell" {
+                let bytes=FileHandle.standardInput.readDataToEndOfFile()
+                guard bytes.count<=4096,let data=try JSONSerialization.jsonObject(with:bytes) as? [String:Any],let word=data["word"] as? String,!word.isEmpty,word.count<=256 else { fail("Invalid spelling word") }
+                let requested=(data["language"] as? String ?? "en-US").replacingOccurrences(of:"-",with:"_")
+                guard let language=NSSpellChecker.availableLanguages.first(where:{$0==requested}) ?? NSSpellChecker.availableLanguages.first(where:{$0.hasPrefix(String(requested.prefix(2)))}) else { print("{\"supported\":false,\"suggestions\":[]}");return }
+                let checker=NSSpellChecker.shared
+                if data["action"] as? String == "add" { checker.learnWord(word);print("null");return }
+                let error=checker.checkSpelling(of:word,startingAt:0,language:language,wrap:false,inSpellDocumentWithTag:0,wordCount:nil)
+                let guesses=error.location==NSNotFound ? [] : Array((checker.guesses(forWordRange:NSRange(location:0,length:word.utf16.count),in:word,language:language,inSpellDocumentWithTag:0) ?? []).prefix(8))
+                FileHandle.standardOutput.write(try JSONSerialization.data(withJSONObject:["supported":true,"misspelled":error.location != NSNotFound,"suggestions":guesses]));return
             }
             if args[1] == "selftest" {
                 let secret=SymmetricKey(size:.bits256),data=Data("FreeShow+ native smoke".utf8)
