@@ -44,3 +44,8 @@ fn parse_mac_memory(total:&str, pages:&str)->Result<serde_json::Value,String>{
     #[test] fn mac_memory_uses_reported_arm_page_size(){let value=parse_mac_memory("16777216\n","Mach Virtual Memory Statistics: (page size of 16384 bytes)\nPages free: 10.\nPages inactive: 20.\nPages speculative: 5.\n").unwrap();assert_eq!(value["free"],35*16384);assert_eq!(value["performanceMode"],true);}
     #[test] fn mac_memory_rejects_missing_or_invalid_statistics(){assert!(parse_mac_memory("0","bad").is_err());assert!(parse_mac_memory("10000","page size of 4096 bytes\nPages wired down: 2.").is_err());}
 }
+
+pub fn device_name()->Result<String,String>{
+ #[cfg(windows)] {return Ok(std::env::var("COMPUTERNAME").unwrap_or_default())}
+ #[cfg(not(windows))] {let output=Command::new("/usr/sbin/sysctl").args(["-n","kern.hostname"]).output().map_err(|e|e.to_string())?;if !output.status.success(){return Err("Computer name unavailable".into())}Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())}
+}

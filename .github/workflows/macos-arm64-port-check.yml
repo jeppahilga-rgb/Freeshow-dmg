@@ -1,11 +1,18 @@
-name: Mac ARM port diagnostics
+name: Mac ARM preview build
 
-# Manual only: this is a porting diagnostic, not a release pipeline.
+# Manual preview build. No automatic release publication.
 on:
   workflow_dispatch:
+    inputs:
+      build_run:
+        description: Optional successful ARM build to repackage with current signing configuration
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: mac-arm-port-${{ github.ref }}
@@ -13,11 +20,15 @@ concurrency:
 
 jobs:
   port-check:
+    if: ${{ inputs.build_run == '' }}
     runs-on: macos-15
-    timeout-minutes: 45
+    timeout-minutes: 60
     env:
       CARGO_BUILD_JOBS: 2
       CARGO_INCREMENTAL: 0
+      FREESHOW_MAC_CORE: '1'
+      FREESHOW_MAC_NATIVE: '1'
+      VITE_MAC_CORE: 'true'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -32,15 +43,72 @@ jobs:
           rustup default stable
       - name: Install JavaScript dependencies without native install scripts
         run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Build ARM native media modules
+        run: node scripts/build-macos-addons.mjs
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+          cache-on-failure: true
+      - name: Frontend regression tests
+        run: npm run test:bridge
       - name: Build frontend and backend JavaScript
         run: npm run build:frontend
+      - name: Stage ARM runtime and app icon
+        run: |
+          node scripts/stage-macos-mediamtx.mjs
+          node scripts/stage-macos-core.mjs
+          npx tauri icon public/icon.png --output src-tauri/icons
+      - name: Smoke test bundled ARM backend
+        run: node scripts/macos-runtime-smoke.mjs
       - name: Inventory platform work
-        run: node scripts/audit-macos-readiness.mjs
+        run: |
+          node scripts/audit-macos-readiness.mjs
+          cp ../output/MACOS-M3-READINESS.json mac-arm-readiness.json
       - name: Check native Apple Silicon compilation
         shell: bash
         run: |
           set -o pipefail
           cargo check --locked --manifest-path src-tauri/Cargo.toml --target aarch64-apple-darwin 2>&1 | tee mac-arm-native-check.log
+      - name: Native core regression tests
+        run: cargo test --locked --manifest-path src-tauri/Cargo.toml --target aarch64-apple-darwin
+      - name: Test embedded RTMP receiver with generated video
+        run: |
+          command -v ffmpeg >/dev/null || brew install ffmpeg
+          node scripts/macos-rtmp-smoke.mjs
+      - name: Build Apple Silicon app and DMG
+        run: npx tauri build --target aarch64-apple-darwin --config src-tauri/tauri.macos.conf.json
+      - name: Verify architecture, signature and DMG
+        shell: bash
+        run: |
+          APP='src-tauri/target/aarch64-apple-darwin/release/bundle/macos/FreeShow+.app'
+          lipo "$APP/Contents/MacOS/freeshow-tauri" -verify_arch arm64
+          lipo "$APP/Contents/Resources/runtime/node" -verify_arch arm64
+          codesign --verify --deep --strict "$APP"
+          codesign -d --entitlements - --xml "$APP" > applied-entitlements.plist
+          python3 - <<'PY'
+          import plistlib
+          values=plistlib.load(open('applied-entitlements.plist','rb'))
+          for key in ['com.apple.security.device.camera','com.apple.security.device.audio-input','com.apple.security.automation.apple-events']:
+              assert values[key] is True,key
+          PY
+          RUNTIME="$PWD/$APP/Contents/Resources/runtime"
+          "$RUNTIME/freeshow-native" selftest
+          FREESHOW_SMOKE_RUNTIME="$RUNTIME" node scripts/macos-runtime-smoke.mjs
+          (cd "$RUNTIME" && ./node --input-type=module -e "for(const name of ['grandiose','openmediatransport','macadam','libltc-wrapper','@discordjs/opus','jazz-midi','sherpa-onnx-node','slideshow']){await import(name);console.log('PASS final app module:',name)}")
+          codesign --verify --deep --strict "$APP"
+          hdiutil verify src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
+          shasum -a 256 src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg > mac-dmg-sha256.txt
+      - name: Upload preview installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: FreeShow-Plus-Mac-ARM-Preview
+          path: |
+            src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
+            mac-dmg-sha256.txt
+            applied-entitlements.plist
+            MACOS-ARM-PORT.md
+          if-no-files-found: error
+          retention-days: 14
       - name: Preserve diagnostics even when compilation fails
         if: always()
         uses: actions/upload-artifact@v4
@@ -48,6 +116,72 @@ jobs:
           name: mac-arm-port-diagnostics
           path: |
             mac-arm-native-check.log
-            ../output/MACOS-M3-READINESS.json
+            mac-arm-readiness.json
           if-no-files-found: warn
           retention-days: 7
+
+  package:
+    if: ${{ inputs.build_run != '' }}
+    runs-on: macos-15
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+      BUILD_RUN: ${{ inputs.build_run }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download and verify tested installer
+        shell: bash
+        run: |
+          test "$(uname -m)" = arm64
+          [[ "$BUILD_RUN" =~ ^[0-9]+$ ]]
+          test "$(gh run view "$BUILD_RUN" --repo "$GITHUB_REPOSITORY" --json conclusion --jq .conclusion)" = success
+          gh run view "$BUILD_RUN" --repo "$GITHUB_REPOSITORY" --json headSha,url > compiled-build.json
+          gh run download "$BUILD_RUN" --repo "$GITHUB_REPOSITORY" --name FreeShow-Plus-Mac-ARM-Preview --dir tested
+          python3 - <<'PY'
+          import hashlib,pathlib
+          root=pathlib.Path('tested')
+          images=list(root.rglob('*.dmg'))
+          assert len(images)==1
+          expected=next(root.rglob('mac-dmg-sha256.txt')).read_text().split()[0]
+          assert hashlib.sha256(images[0].read_bytes()).hexdigest()==expected
+          pathlib.Path('tested-dmg-path.txt').write_text(str(images[0]))
+          PY
+          hdiutil verify "$(cat tested-dmg-path.txt)"
+      - name: Apply camera microphone and automation entitlements
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p stage deliver
+          hdiutil attach "$(cat tested-dmg-path.txt)" -readonly -nobrowse -plist > mounted.plist
+          MOUNT=$(python3 -c 'import plistlib; print(next(x["mount-point"] for x in plistlib.load(open("mounted.plist","rb"))["system-entities"] if "mount-point" in x))')
+          trap 'hdiutil detach "$MOUNT" >/dev/null || true' EXIT
+          ditto "$MOUNT/FreeShow+.app" 'stage/FreeShow+.app'
+          ln -s /Applications stage/Applications
+          /usr/bin/plutil -lint src-tauri/Entitlements.mac.plist
+          codesign --force --sign - --options runtime --entitlements src-tauri/Entitlements.mac.plist 'stage/FreeShow+.app'
+          codesign --verify --deep --strict 'stage/FreeShow+.app'
+          codesign -d --entitlements - --xml 'stage/FreeShow+.app' > applied-entitlements.plist
+          python3 - <<'PY'
+          import plistlib
+          values=plistlib.load(open('applied-entitlements.plist','rb'))
+          for key in ['com.apple.security.device.camera','com.apple.security.device.audio-input','com.apple.security.automation.apple-events']:
+              assert values[key] is True,key
+          PY
+          lipo 'stage/FreeShow+.app/Contents/MacOS/freeshow-tauri' -verify_arch arm64
+          lipo 'stage/FreeShow+.app/Contents/Resources/runtime/node' -verify_arch arm64
+          'stage/FreeShow+.app/Contents/Resources/runtime/freeshow-native' selftest
+          RUNTIME="$PWD/stage/FreeShow+.app/Contents/Resources/runtime"
+          FREESHOW_SMOKE_RUNTIME="$RUNTIME" node scripts/macos-runtime-smoke.mjs
+          (cd "$RUNTIME" && ./node --input-type=module -e "for(const name of ['grandiose','openmediatransport','macadam','libltc-wrapper','@discordjs/opus','jazz-midi','sherpa-onnx-node','slideshow']){await import(name);console.log('PASS final app module:',name)}")
+          codesign --verify --deep --strict 'stage/FreeShow+.app'
+          hdiutil create -volname 'FreeShow+' -srcfolder stage -format UDZO 'deliver/FreeShow-Plus-1.6.7-beta.1-Mac-ARM-Native-Preview.dmg'
+          hdiutil verify deliver/*.dmg
+          shasum -a 256 deliver/*.dmg > deliver/mac-dmg-sha256.txt
+          cp compiled-build.json applied-entitlements.plist MACOS-ARM-PORT.md deliver/
+          git rev-parse HEAD > deliver/packaging-commit.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FreeShow-Plus-Mac-ARM-Native-Installer
+          path: deliver/
+          if-no-files-found: error
+          retention-days: 14

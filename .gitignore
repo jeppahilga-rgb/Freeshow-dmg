@@ -34,3 +34,7 @@ test-results/
 /src-tauri/mediamtx/download.zip
 /src-tauri/backend-runtime/build/
 /src-tauri/backend-runtime/sdk/
+/src-tauri/mac-runtime/
+
+src-tauri/mediamtx/mediamtx-darwin-arm64
+src-tauri/mediamtx/MAC-UPSTREAM.json

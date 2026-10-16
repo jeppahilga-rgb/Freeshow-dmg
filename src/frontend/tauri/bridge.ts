@@ -261,7 +261,7 @@ export async function installTauriBridge() {
     if (getCurrentWindow().label === "main") {
         const status = document.createElement("div")
         status.id = "tauri-status"
-        status.textContent = "FreeShow+ preview • Integration ports included • Some features still need testing"
+        status.textContent = import.meta.env.VITE_MAC_CORE === 'true' ? "FreeShow+ Mac ARM preview • Native integration ports included • Hardware testing required" : "FreeShow+ preview • Integration ports included • Some features still need testing"
         status.style.cssText = "position:fixed;bottom:0;left:0;right:0;z-index:100000;background:#242030;color:#ddd;padding:4px 10px;font:11px sans-serif;pointer-events:none"
         document.body.style.height = "calc(100% - 22px)"
         status.style.height = "22px"

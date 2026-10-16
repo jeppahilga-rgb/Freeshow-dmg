@@ -179,8 +179,33 @@ async fn capture(view:&Webview)->Result<Vec<u8>,String> {
     }).map_err(|e|e.to_string())?;
     tokio::time::timeout(std::time::Duration::from_secs(3),receive).await.map_err(|_|"Website capture timed out".to_string())?.map_err(|_|"Website capture unavailable".to_string())?
 }
-#[cfg(not(windows))]
-async fn capture(_: &Webview)->Result<Vec<u8>,String>{Err("Shared website capture requires Windows".into())}
+#[cfg(target_os="macos")]
+async fn capture(view:&Webview)->Result<Vec<u8>,String>{
+ use objc2::{MainThreadMarker,AllocAnyThread};
+ use objc2_app_kit::{NSImage,NSBitmapImageRep,NSBitmapImageFileType,NSImageCompressionFactor};
+ use objc2_foundation::{NSError,NSDictionary,NSNumber,NSString};
+ use objc2_web_kit::{WKWebView,WKSnapshotConfiguration};
+ let (sender,receiver)=tokio::sync::oneshot::channel();
+ view.with_webview(move|platform|{unsafe{
+  let web=&*(platform.inner() as *mut WKWebView);
+  let config=WKSnapshotConfiguration::new(MainThreadMarker::new().expect("WebKit main thread"));config.setAfterScreenUpdates(false);
+  let sender=std::sync::Mutex::new(Some(sender));
+  let callback=block2::RcBlock::new(move|image:*mut NSImage,error:*mut NSError|{
+   let result=(||->Result<Vec<u8>,String>{
+    if !error.is_null(){return Err((&*error).localizedDescription().to_string())}
+    let image=image.as_ref().ok_or("Website snapshot unavailable")?;
+    let tiff=image.TIFFRepresentation().ok_or("Website image unavailable")?;
+    let bitmap=NSBitmapImageRep::initWithData(NSBitmapImageRep::alloc(),&tiff).ok_or("Website bitmap unavailable")?;
+    let quality=NSNumber::new_f64(0.98);
+    let properties=NSDictionary::<NSString,objc2::runtime::AnyObject>::from_slices(&[NSImageCompressionFactor],&[&*quality]);
+    let bytes=bitmap.representationUsingType_properties(NSBitmapImageFileType::JPEG,&properties).ok_or("Website JPEG unavailable")?;
+    Ok(bytes.to_vec())
+   })();if let Some(sender)=sender.lock().unwrap().take(){let _=sender.send(result);}
+  });
+  web.takeSnapshotWithConfiguration_completionHandler(Some(&config),&callback);
+ }}).map_err(|e|e.to_string())?;
+ tokio::time::timeout(std::time::Duration::from_secs(5),receiver).await.map_err(|_|"Website capture timed out")?.map_err(|_|"Website capture unavailable")?
+}
 
 
 

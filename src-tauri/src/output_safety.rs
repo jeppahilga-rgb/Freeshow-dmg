@@ -97,6 +97,7 @@ pub fn dismiss_blocking(app: &tauri::AppHandle, all: bool) {
     restore_editor(app);
 }
 
+#[cfg(windows)]
 pub fn install(app: tauri::AppHandle) {
     // Thread-owned Windows hotkey works even when an output/embedded website has
     // focus, or the unfocused output has covered the editor's entire monitor.
@@ -119,6 +120,16 @@ pub fn install(app: tauri::AppHandle) {
             let _ = UnregisterHotKey(None, 0x4653);
         }
     });
+}
+#[cfg(target_os="macos")]
+pub fn install(app:tauri::AppHandle){
+ use tauri_plugin_global_shortcut::{GlobalShortcutExt,ShortcutState};
+ let result=(||->Result<(),String>{
+  app.plugin(tauri_plugin_global_shortcut::Builder::new().with_handler(|app,_,event|{
+   if event.state()==ShortcutState::Pressed{let app=app.clone();let dispatch=app.clone();let _=dispatch.run_on_main_thread(move||dismiss_blocking(&app,true));}
+  }).build()).map_err(|e|e.to_string())?;
+  app.global_shortcut().register("CommandOrControl+Shift+F12").map_err(|e|e.to_string())?;Ok(())
+ })();if let Err(error)=result{eprintln!("Output recovery shortcut unavailable: {error}");}
 }
 
 #[cfg(test)]
@@ -144,6 +155,7 @@ mod tests {
         assert!(super::recovery_labels(&windows, None, false).is_empty());
     }
     #[test]
+    #[cfg(windows)]
     fn shell_property_is_applied_removed_and_restored_on_a_real_hidden_hwnd() {
         use windows::{core::w, Win32::UI::WindowsAndMessaging::{CreateWindowExW, DestroyWindow, GetPropW, HWND_MESSAGE, WINDOW_EX_STYLE, WINDOW_STYLE}};
         unsafe {

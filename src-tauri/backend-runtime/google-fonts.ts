@@ -9,6 +9,13 @@ const pending=new Map<string,Promise<any>>()
 async function bytes(url:string,max:number){const response=await fetch(url,{signal:AbortSignal.timeout(45000)});if(!response.ok||!response.body)throw Error('Google Font download failed ('+response.status+')');const chunks:Buffer[]=[];let size=0;const reader=response.body.getReader();try{for(;;){const {done,value}=await reader.read();if(done)break;size+=value.length;if(size>max)throw Error('Google Font download exceeds size limit');chunks.push(Buffer.from(value))}}finally{await reader.cancel()}return Buffer.concat(chunks)}
 export async function googleFonts(data:any){
  if(data?.action==='inventory'){
+  if(process.platform==='darwin'){
+   const {stdout}=await promisify(execFile)('/usr/sbin/system_profiler',['-json','SPFontsDataType'],{timeout:20000,maxBuffer:16*1024*1024})
+   const report=JSON.parse(stdout),families=new Set<string>()
+   for(const font of report.SPFontsDataType||[])for(const face of font.typefaces||[])if(typeof face.family==='string'&&face.family.trim())families.add(face.family.trim())
+   if(!families.size)throw Error('macOS did not return any installed font families')
+   return [...families].sort((a,b)=>a.localeCompare(b))
+  }
   const {stdout}=await promisify(execFile)('powershell.exe',['-NoProfile','-NonInteractive','-Command','Add-Type -AssemblyName System.Drawing; $fonts = New-Object System.Drawing.Text.InstalledFontCollection; try { @($fonts.Families | ForEach-Object { $_.Name }) | ConvertTo-Json -Compress } finally { $fonts.Dispose() }'],{windowsHide:true,timeout:15000,maxBuffer:1024*1024})
   const value=JSON.parse(stdout);return Array.isArray(value)?value:[value]
  }

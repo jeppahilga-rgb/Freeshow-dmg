@@ -5,9 +5,10 @@
     import { startVirtualCameraOutput } from "../../../tauri/virtualCameraStart"
     export let outputId = ""
     export let enabled = false
+    let supported = true, unavailableReason = ""
     let running = false, activeOutput = "", busy = false, error = ""
     async function refresh() {
-        try { const status:any = await invoke("virtual_camera", { action: "status", output: null }); running=status.running;activeOutput=status.output||"" }
+        try { const status:any = await invoke("virtual_camera", { action: "status", output: null }); running=status.running;activeOutput=status.output||"";supported=status.supported!==false;unavailableReason=status.reason||"A signed camera component is required on this platform." }
         catch(e) { error=String(e) }
     }
     onMount(()=>{void refresh();const timer=setInterval(()=>{if(!busy)void refresh()},2000);return()=>clearInterval(timer)})
@@ -28,12 +29,16 @@
 </script>
 <section aria-label="Virtual camera output">
     <h3>Virtual camera</h3>
+    {#if !supported}
+    <p class="hint" role="status">{unavailableReason}</p>
+    {:else}
     <p>Send this output to <strong>FreeShow Virtual Camera</strong> for OBS, Zoom, or another camera app.</p>
     <p>1280 × 720 · 30 fps · Video only</p>
     <button disabled={busy||(!running&&(!enabled||!outputId))} on:click={toggle}>{busy?"Please wait…":running?"Stop virtual camera":"Start virtual camera"}</button>
     {#if running}<p role="status">Running{activeOutput!==outputId?" from another output":""}.</p>{/if}
     {#if error}<p class="error" role="alert">{error}</p>{/if}
     <p class="hint">Start renders this output outside your displays. No output screen is required. In the receiving app, select “FreeShow Virtual Camera”.</p>
+    {/if}
 </section>
 <style>
     section{padding:12px 0;border-top:1px solid #454550}h3{margin:0 0 8px}p{font-size:0.85em;margin:6px 0}button{background:#252632;color:white;border:1px solid #72727d;border-radius:4px;padding:8px 16px;cursor:pointer}button:disabled{opacity:0.5;cursor:default}.error{color:#ff9999}.hint{opacity:0.7}

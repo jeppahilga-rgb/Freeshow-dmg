@@ -11,12 +11,7 @@ impl Drop for Midi{fn drop(&mut self){self.stop();}}
 fn name(chars:&[u16])->String{String::from_utf16_lossy(&chars[..chars.iter().position(|c|*c==0).unwrap_or(chars.len())])}
 fn devices(input:bool)->Vec<(u32,String)>{unsafe{let count=if input{midiInGetNumDevs()}else{midiOutGetNumDevs()};(0..count).filter_map(|i|{if input{let mut caps=MIDIINCAPSW::default();(midiInGetDevCapsW(i as usize,&mut caps,std::mem::size_of_val(&caps) as u32)==0).then(||{let chars=caps.szPname;(i,name(&chars))})}else{let mut caps=MIDIOUTCAPSW::default();(midiOutGetDevCapsW(i as usize,&mut caps,std::mem::size_of_val(&caps) as u32)==0).then(||{let chars=caps.szPname;(i,name(&chars))})}}).collect()}}
 fn check(code:u32)->Result<(),String>{if code==0{Ok(())}else{Err(format!("Windows MIDI error {code}"))}}
-fn message(kind:&str,values:&Value)->Result<u32,String>{
-    let channel=values["channel"].as_u64().unwrap_or(1);if !(1..=16).contains(&channel){return Err("MIDI channel must be 1–16".into());}
-    let (status,a,b)=match kind{"control"=>(0xb0,values["controller"].as_u64().unwrap_or(0),values["value"].as_u64().unwrap_or(0)),"noteoff"=>(0x80,values["note"].as_u64().unwrap_or(0),values["velocity"].as_u64().unwrap_or(0)),"noteon"=>(0x90,values["note"].as_u64().unwrap_or(0),values["velocity"].as_u64().unwrap_or(0)),_=>return Err("Unknown MIDI message type".into())};
-    if a>127||b>127{return Err("MIDI data must be 0–127".into());}Ok(status|(channel as u32-1)|(a as u32)<<8|(b as u32)<<16)
-}
-fn decode(id:&str,packed:u32)->Option<Value>{let status=packed&0xff;let a=(packed>>8)&0x7f;let b=(packed>>16)&0x7f;let channel=(status&0xf)+1;match status&0xf0{0x80|0x90=>Some(json!({"id":id,"type":if status&0xf0==0x90&&b>0{"noteon"}else{"noteoff"},"values":{"note":a,"velocity":b,"channel":channel}})),0xb0=>Some(json!({"id":id,"type":"control","values":{"controller":a,"value":b,"channel":channel}})),_=>None}}
+use crate::midi_protocol::{message,decode};
 unsafe extern "system" fn callback(_:HMIDIIN,event:u32,instance:usize,param:usize,_:usize){if event!=MM_MIM_DATA||instance==0{return;}let ctx=unsafe{&*(instance as *const Context)};if let Some(data)=decode(&ctx.id,param as u32){let _=ctx.app.emit_to("main","freeshow-ipc",json!({"channel":"MAIN","msg":{"channel":"RECEIVE_MIDI2","data":data}}));}}
 #[tauri::command]
 pub fn midi_service(app:tauri::AppHandle,caller:tauri::Webview,state:State<'_,Midi>,operation:String,data:Value)->Result<Value,String>{
@@ -28,7 +23,4 @@ pub fn midi_service(app:tauri::AppHandle,caller:tauri::Webview,state:State<'_,Mi
         "CLOSE_MIDI"=>{let id=data["id"].as_str().unwrap_or("");if id.is_empty(){state.stop();}else{state.inputs.lock().unwrap().remove(id);}Ok(Value::Null)},
         _=>Err("Unknown MIDI operation".into())
     }
-}
-#[cfg(test)]mod tests{use super::*;
-    #[test]fn channels_and_note_off_velocity(){let bytes=message("noteon",&json!({"channel":16,"note":60,"velocity":0})).unwrap();let decoded=decode("test",bytes).unwrap();assert_eq!(decoded["values"]["channel"],16);assert_eq!(decoded["type"],"noteoff");assert!(message("noteon",&json!({"channel":17})).is_err());assert!(message("control",&json!({"controller":128})).is_err());}
 }

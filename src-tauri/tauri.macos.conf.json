@@ -1,0 +1,35 @@
+{
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "dragDropEnabled": false,
+        "title": "FreeShow+ Mac Preview",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 800,
+        "minHeight": 600,
+        "decorations": true
+      }
+    ]
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "app",
+      "dmg"
+    ],
+    "icon": [
+      "icons/icon.icns"
+    ],
+    "resources": {
+      "mac-runtime/": "runtime/"
+    },
+    "macOS": {
+      "minimumSystemVersion": "13.0",
+      "signingIdentity": "-",
+      "infoPlist": "Info.mac.plist",
+      "entitlements": "Entitlements.mac.plist"
+    }
+  }
+}
