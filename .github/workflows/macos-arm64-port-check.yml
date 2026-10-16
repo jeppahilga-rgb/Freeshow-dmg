@@ -65,8 +65,8 @@ jobs:
         shell: bash
         run: |
           APP='src-tauri/target/aarch64-apple-darwin/release/bundle/macos/FreeShow+.app'
-          lipo -verify_arch arm64 "$APP/Contents/MacOS/freeshow-tauri"
-          lipo -verify_arch arm64 "$APP/Contents/Resources/runtime/node"
+          lipo "$APP/Contents/MacOS/freeshow-tauri" -verify_arch arm64
+          lipo "$APP/Contents/Resources/runtime/node" -verify_arch arm64
           codesign --verify --deep --strict "$APP"
           hdiutil verify src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
           shasum -a 256 src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg > mac-dmg-sha256.txt
