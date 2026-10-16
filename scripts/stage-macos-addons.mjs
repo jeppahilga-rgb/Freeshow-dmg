@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import {createRequire} from 'node:module'
+import {createRequire,isBuiltin} from 'node:module'
 import {execFileSync} from 'node:child_process'
 const runtime=path.resolve('src-tauri/mac-runtime')
 const rootRequire=createRequire(path.resolve('package.json'))
@@ -13,6 +13,7 @@ async function packageRoot(name,requireFrom){
  throw Error('Cannot resolve runtime package '+name)
 }
 async function copy(name,requireFrom=rootRequire){
+ if(isBuiltin(name))return
  const {folder,info}=await packageRoot(name,requireFrom)
  const location=path.relative(path.resolve('node_modules'),folder)
  if(location.startsWith('..')||path.isAbsolute(location))throw Error('Dependency resolves outside node_modules: '+name)
