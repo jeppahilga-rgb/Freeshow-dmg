@@ -3,9 +3,16 @@ name: Mac ARM preview build
 # Manual preview build. No automatic release publication.
 on:
   workflow_dispatch:
+    inputs:
+      build_run:
+        description: Optional successful ARM build to repackage with current signing configuration
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: mac-arm-port-${{ github.ref }}
@@ -13,6 +20,7 @@ concurrency:
 
 jobs:
   port-check:
+    if: ${{ inputs.build_run == '' }}
     runs-on: macos-15
     timeout-minutes: 60
     env:
@@ -98,3 +106,65 @@ jobs:
             mac-arm-readiness.json
           if-no-files-found: warn
           retention-days: 7
+
+  package:
+    if: ${{ inputs.build_run != '' }}
+    runs-on: macos-15
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+      BUILD_RUN: ${{ inputs.build_run }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download and verify tested installer
+        shell: bash
+        run: |
+          test "$(uname -m)" = arm64
+          [[ "$BUILD_RUN" =~ ^[0-9]+$ ]]
+          test "$(gh run view "$BUILD_RUN" --repo "$GITHUB_REPOSITORY" --json conclusion --jq .conclusion)" = success
+          gh run view "$BUILD_RUN" --repo "$GITHUB_REPOSITORY" --json headSha,url > compiled-build.json
+          gh run download "$BUILD_RUN" --repo "$GITHUB_REPOSITORY" --name FreeShow-Plus-Mac-ARM-Preview --dir tested
+          python3 - <<'PY'
+          import hashlib,pathlib
+          root=pathlib.Path('tested')
+          images=list(root.rglob('*.dmg'))
+          assert len(images)==1
+          expected=next(root.rglob('mac-dmg-sha256.txt')).read_text().split()[0]
+          assert hashlib.sha256(images[0].read_bytes()).hexdigest()==expected
+          pathlib.Path('tested-dmg-path.txt').write_text(str(images[0]))
+          PY
+          hdiutil verify "$(cat tested-dmg-path.txt)"
+      - name: Apply camera microphone and automation entitlements
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p stage deliver
+          hdiutil attach "$(cat tested-dmg-path.txt)" -readonly -nobrowse -plist > mounted.plist
+          MOUNT=$(python3 -c 'import plistlib; print(next(x["mount-point"] for x in plistlib.load(open("mounted.plist","rb"))["system-entities"] if "mount-point" in x))')
+          trap 'hdiutil detach "$MOUNT" >/dev/null || true' EXIT
+          ditto "$MOUNT/FreeShow+.app" 'stage/FreeShow+.app'
+          ln -s /Applications stage/Applications
+          /usr/bin/plutil -lint src-tauri/Entitlements.mac.plist
+          codesign --force --sign - --options runtime --entitlements src-tauri/Entitlements.mac.plist 'stage/FreeShow+.app'
+          codesign --verify --deep --strict 'stage/FreeShow+.app'
+          codesign -d --entitlements - 'stage/FreeShow+.app' > applied-entitlements.plist
+          python3 - <<'PY'
+          import plistlib
+          values=plistlib.load(open('applied-entitlements.plist','rb'))
+          for key in ['com.apple.security.device.camera','com.apple.security.device.audio-input','com.apple.security.automation.apple-events']:
+              assert values[key] is True,key
+          PY
+          lipo 'stage/FreeShow+.app/Contents/MacOS/freeshow-tauri' -verify_arch arm64
+          lipo 'stage/FreeShow+.app/Contents/Resources/runtime/node' -verify_arch arm64
+          'stage/FreeShow+.app/Contents/Resources/runtime/freeshow-native' selftest
+          hdiutil create -volname 'FreeShow+' -srcfolder stage -format UDZO 'deliver/FreeShow-Plus-1.6.7-beta.1-Mac-ARM-Native-Preview.dmg'
+          hdiutil verify deliver/*.dmg
+          shasum -a 256 deliver/*.dmg > deliver/mac-dmg-sha256.txt
+          cp compiled-build.json applied-entitlements.plist MACOS-ARM-PORT.md deliver/
+          git rev-parse HEAD > deliver/packaging-commit.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FreeShow-Plus-Mac-ARM-Native-Installer
+          path: deliver/
+          if-no-files-found: error
+          retention-days: 14
