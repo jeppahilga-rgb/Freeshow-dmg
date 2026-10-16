@@ -25,6 +25,11 @@ pub struct DropRequest {
     bytes: Option<Vec<u8>>,
 }
 fn target(root: &Path, relative: &str) -> Result<PathBuf, String> {
+    let drive = relative.as_bytes().get(0).is_some_and(u8::is_ascii_alphabetic)
+        && relative.as_bytes().get(1) == Some(&b':');
+    if drive || relative.contains('\\') {
+        return Err("Dropped file path must be a relative forward-slash path".into());
+    }
     let relative = Path::new(relative);
     if relative.as_os_str().is_empty()
         || relative
