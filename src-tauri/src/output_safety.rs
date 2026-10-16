@@ -97,6 +97,7 @@ pub fn dismiss_blocking(app: &tauri::AppHandle, all: bool) {
     restore_editor(app);
 }
 
+#[cfg(windows)]
 pub fn install(app: tauri::AppHandle) {
     // Thread-owned Windows hotkey works even when an output/embedded website has
     // focus, or the unfocused output has covered the editor's entire monitor.
@@ -119,6 +120,11 @@ pub fn install(app: tauri::AppHandle) {
             let _ = UnregisterHotKey(None, 0x4653);
         }
     });
+}
+#[cfg(not(windows))]
+pub fn install(_app: tauri::AppHandle) {
+    // Escape/double-click recovery is installed in each webview on macOS.
+    // The Windows-wide RegisterHotKey API has no macOS implementation here.
 }
 
 #[cfg(test)]
