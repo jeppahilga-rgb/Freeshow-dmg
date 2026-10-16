@@ -59,3 +59,4 @@ objc2-app-kit = { version = "0.3", features = ["NSWindow"] }
 objc2-foundation = { version = "0.3", features = ["NSData", "NSError"] }
 objc2-web-kit = { version = "0.3", features = ["WKPDFConfiguration", "WKSnapshotConfiguration", "block2"] }
 block2 = "0.6"
+tauri-plugin-global-shortcut = "2.4.1"

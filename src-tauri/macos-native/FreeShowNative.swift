@@ -78,11 +78,21 @@ final class Capture: NSObject, SCStreamOutput, SCStreamDelegate {
                 guard args.count==3 else { fail("Missing credential namespace") }
                 try protect(args[1]=="unprotect",args[2]); return
             }
+            if args[1] == "keychain-selftest" {
+                let account="ci-"+UUID().uuidString
+                defer { SecItemDelete([kSecClass:kSecClassGenericPassword,kSecAttrService:"org.freeshow.plus.credentials",kSecAttrAccount:account] as CFDictionary) }
+                let first=try key(account,create:true),second=try key(account,create:false)
+                let bytes=Data("isolated FreeShow keychain fixture".utf8)
+                let sealed=try AES.GCM.seal(bytes,using:first,authenticating:Data(account.utf8))
+                guard try AES.GCM.open(sealed,using:second,authenticating:Data(account.utf8))==bytes else { fail("Keychain encryption roundtrip failed") }
+                do { _=try AES.GCM.open(sealed,using:second,authenticating:Data("wrong namespace".utf8));fail("Credential namespace authentication failed") } catch {}
+                print("PASS isolated Keychain key creation, reload, encryption and authentication; fixture removed");return
+            }
             if args[1] == "spell" {
                 let bytes=FileHandle.standardInput.readDataToEndOfFile()
                 guard bytes.count<=4096,let data=try JSONSerialization.jsonObject(with:bytes) as? [String:Any],let word=data["word"] as? String,!word.isEmpty,word.count<=256 else { fail("Invalid spelling word") }
                 let requested=(data["language"] as? String ?? "en-US").replacingOccurrences(of:"-",with:"_")
-                guard let language=NSSpellChecker.availableLanguages.first(where:{$0==requested}) ?? NSSpellChecker.availableLanguages.first(where:{$0.hasPrefix(String(requested.prefix(2)))}) else { print("{\"supported\":false,\"suggestions\":[]}");return }
+                guard let language=NSSpellChecker.shared.availableLanguages.first(where:{$0==requested}) ?? NSSpellChecker.shared.availableLanguages.first(where:{$0.hasPrefix(String(requested.prefix(2)))}) else { print("{\"supported\":false,\"suggestions\":[]}");return }
                 let checker=NSSpellChecker.shared
                 if data["action"] as? String == "add" { checker.learnWord(word);print("null");return }
                 let error=checker.checkSpelling(of:word,startingAt:0,language:language,wrap:false,inSpellDocumentWithTag:0,wordCount:nil)
@@ -123,7 +133,9 @@ final class Capture: NSObject, SCStreamOutput, SCStreamDelegate {
             let stream=SCStream(filter:filter,configuration:config,delegate:capture)
             try stream.addStreamOutput(capture,type:.screen,sampleHandlerQueue:DispatchQueue(label:"org.freeshow.capture"))
             try await stream.startCapture()
-            while true { try await Task.sleep(nanoseconds:1_000_000_000) }
+            let parent=getppid()
+            while getppid()==parent { try await Task.sleep(nanoseconds:1_000_000_000) }
+            try await stream.stopCapture()
         } catch { fail(error.localizedDescription) }
     }
 }

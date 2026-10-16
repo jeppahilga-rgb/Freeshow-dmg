@@ -77,10 +77,15 @@ pub(crate) async fn navigation(view: &Webview, action: &str) -> Result<serde_jso
         result["url"] = serde_json::json!(view.url().map_err(|e| e.to_string())?.as_str());
         Ok(result)
     }
-    #[cfg(not(windows))] {
-        if action == "back" { view.eval("history.back()").map_err(|e| e.to_string())?; }
-        if action == "forward" { view.eval("history.forward()").map_err(|e| e.to_string())?; }
-        Ok(serde_json::json!({"url":view.url().map_err(|e| e.to_string())?.as_str()}))
+    #[cfg(target_os="macos")] {
+        let action=action.to_string();let (sender,receiver)=tokio::sync::oneshot::channel();
+        view.with_webview(move|platform|{unsafe{
+            let web=&*(platform.inner() as *mut objc2_web_kit::WKWebView);
+            if action=="back"{web.goBack();}if action=="forward"{web.goForward();}
+            let _=sender.send(serde_json::json!({"canGoBack":web.canGoBack(),"canGoForward":web.canGoForward()}));
+        }}).map_err(|e|e.to_string())?;
+        let mut result=receiver.await.map_err(|e|e.to_string())?;
+        result["url"]=serde_json::json!(view.url().map_err(|e|e.to_string())?.as_str());Ok(result)
     }
 }
 

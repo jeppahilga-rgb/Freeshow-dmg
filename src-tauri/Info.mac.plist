@@ -4,4 +4,5 @@
 <key>NSCameraUsageDescription</key><string>FreeShow uses the selected camera as a presentation input.</string>
 <key>NSMicrophoneUsageDescription</key><string>FreeShow uses the microphone when you select an audio input.</string>
 <key>NSLocalNetworkUsageDescription</key><string>FreeShow connects to presentation controllers and media sources on your local network.</string>
+<key>NSAppleEventsUsageDescription</key><string>FreeShow controls PowerPoint or Keynote presentations when you choose a presentation input.</string>
 </dict></plist>

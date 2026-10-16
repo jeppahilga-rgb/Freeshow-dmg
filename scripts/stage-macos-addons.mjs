@@ -55,3 +55,5 @@ await fs.mkdir(path.join(runtime,'slideshow'),{recursive:true})
 for(const file of await fs.readdir('node_modules/slideshow'))if(file.startsWith('connector-mac-'))await fs.copyFile(path.join('node_modules/slideshow',file),path.join(runtime,'slideshow',file))
 await fs.writeFile(path.join(runtime,'NATIVE-MODULES.json'),JSON.stringify({platform:'darwin',arch:'arm64',packages:Object.fromEntries(copied),binaries:native.map(file=>path.relative(runtime,file))},null,2))
 console.log('Staged Mac ARM native packages:',copied.size)
+
+execFileSync(path.join(runtime,'node'),['--input-type=module','-e',`for(const name of ['grandiose','openmediatransport','macadam','libltc-wrapper','@discordjs/opus','jazz-midi','sherpa-onnx-node','slideshow']){await import(name);console.log('PASS staged runtime import:',name)}`],{cwd:runtime,stdio:'inherit'})

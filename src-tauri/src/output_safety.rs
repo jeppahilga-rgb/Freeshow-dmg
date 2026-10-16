@@ -121,10 +121,15 @@ pub fn install(app: tauri::AppHandle) {
         }
     });
 }
-#[cfg(not(windows))]
-pub fn install(_app: tauri::AppHandle) {
-    // Escape/double-click recovery is installed in each webview on macOS.
-    // The Windows-wide RegisterHotKey API has no macOS implementation here.
+#[cfg(target_os="macos")]
+pub fn install(app:tauri::AppHandle){
+ use tauri_plugin_global_shortcut::{GlobalShortcutExt,ShortcutState};
+ let result=(||->tauri::Result<()>{
+  app.plugin(tauri_plugin_global_shortcut::Builder::new().with_handler(|app,_,event|{
+   if event.state()==ShortcutState::Pressed{let app=app.clone();let dispatch=app.clone();let _=dispatch.run_on_main_thread(move||dismiss_blocking(&app,true));}
+  }).build())?;
+  app.global_shortcut().register("CommandOrControl+Shift+F12")?;Ok(())
+ })();if let Err(error)=result{eprintln!("Output recovery shortcut unavailable: {error}");}
 }
 
 #[cfg(test)]
