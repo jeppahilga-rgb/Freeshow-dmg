@@ -5,6 +5,10 @@ import {execFileSync} from 'node:child_process'
 if(process.platform!=='darwin'||process.arch!=='arm64')throw Error('Run on a native Apple Silicon macOS runner')
 const destination='src-tauri/mac-runtime'
 await fs.mkdir(destination,{recursive:true})
+const helper=path.join(destination,'freeshow-native')
+execFileSync('/usr/bin/xcrun',['swiftc','-parse-as-library','-O','-target','arm64-apple-macosx13.0','src-tauri/macos-native/FreeShowNative.swift','-o',helper],{stdio:'inherit'})
+execFileSync('/usr/bin/codesign',['--force','--sign','-',helper],{stdio:'inherit'})
+execFileSync(helper,['selftest'],{stdio:'inherit'})
 for(const name of ['backend.cjs','nemotronWorker.js','streamReceiverProcess.js','ndiWorker.js','omtWorker.js'])await fs.copyFile(path.join('src-tauri/backend-runtime/build',name),path.join(destination,name))
 await fs.cp('src-tauri/backend-runtime/build/proto',path.join(destination,'proto'),{recursive:true})
 await fs.copyFile(process.execPath,path.join(destination,'node'));await fs.chmod(path.join(destination,'node'),0o755)

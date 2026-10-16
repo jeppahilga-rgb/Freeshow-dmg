@@ -1,11 +1,13 @@
 use serde_json::{json, Value};
 use std::{fs, net::{TcpListener,UdpSocket}, process::{Child,Command,Stdio}, sync::Mutex, time::Duration};
 use tauri::{Manager, State};
+#[cfg(windows)]
 use std::os::windows::{process::CommandExt,io::AsRawHandle};
+#[cfg(windows)]
 use windows::Win32::{Foundation::{CloseHandle,HANDLE},System::JobObjects::*};
 
-struct Running { child:Child, job:usize, id:String, key:String, http:u16, api:u16, urls:Vec<String> }
-impl Drop for Running { fn drop(&mut self) { let _=self.child.kill(); let _=self.child.wait(); unsafe { let _=CloseHandle(HANDLE(self.job as *mut _)); } } }
+struct Running { child:Child, #[cfg(windows)] job:usize, id:String, key:String, http:u16, api:u16, urls:Vec<String> }
+impl Drop for Running { fn drop(&mut self) { #[cfg(unix)] unsafe { libc::kill(-(self.child.id() as i32),libc::SIGKILL); } let _=self.child.kill(); let _=self.child.wait(); #[cfg(windows)] unsafe { let _=CloseHandle(HANDLE(self.job as *mut _)); } } }
 #[derive(Default)]
 pub struct RtmpInput { inner:Mutex<Option<Running>> }
 impl RtmpInput { pub fn stop(&self) { self.inner.lock().unwrap().take(); } }
@@ -13,27 +15,32 @@ fn tcp_listener(host:&str,preferred:u16) -> Result<TcpListener,String> { TcpList
 fn config(key:&str, rtmp:u16,http:u16,api:u16,udp:u16) -> String {format!("logLevel: warn\nlogDestinations: [stdout]\nrtsp: false\nhls: false\nsrt: false\nmoq: false\nrtmp: true\nrtmpAddress: :{rtmp}\nwebrtc: true\nwebrtcAddress: 127.0.0.1:{http}\nwebrtcLocalUDPAddress: 0.0.0.0:{udp}\nwebrtcIPsFromInterfaces: true\nwebrtcAdditionalHosts: [127.0.0.1]\nwebrtcICEServers2: []\napi: true\napiAddress: 127.0.0.1:{api}\nauthInternalUsers:\n- user: any\n  ips: []\n  permissions:\n  - action: publish\n    path: {key}\n- user: any\n  ips: [127.0.0.1, '::1']\n  permissions:\n  - action: read\n    path: {key}\n  - action: api\npaths:\n  {key}:\n    source: publisher\n")}
 fn launch(app:&tauri::AppHandle)->Result<Running,String> {
     let dir=app.path().app_local_data_dir().map_err(|e|e.to_string())?.join("rtmp-input/v1.21.2"); fs::create_dir_all(&dir).map_err(|e|e.to_string())?;
-    let exe=dir.join("mediamtx.exe"); let bundled=include_bytes!("../mediamtx/mediamtx.exe");
-    if fs::read(&exe).ok().as_deref()!=Some(bundled.as_slice()) {fs::write(&exe,bundled).map_err(|e|e.to_string())?;}
+    #[cfg(windows)] let (exe,bundled)=(dir.join("mediamtx.exe"),include_bytes!("../mediamtx/mediamtx.exe").as_slice());
+    #[cfg(not(windows))] let (exe,bundled)=(dir.join("mediamtx"),include_bytes!("../mediamtx/mediamtx-darwin-arm64").as_slice());
+    if fs::read(&exe).ok().as_deref()!=Some(bundled) {fs::write(&exe,bundled).map_err(|e|e.to_string())?;}
+    #[cfg(unix)] {use std::os::unix::fs::PermissionsExt; fs::set_permissions(&exe,fs::Permissions::from_mode(0o755)).map_err(|e|e.to_string())?;}
     fs::write(dir.join("LICENSE-MediaMTX.txt"),include_bytes!("../mediamtx/LICENSE")).map_err(|e|e.to_string())?;
     let key=String::from("cam"); let id=format!("rtmp-{}",uuid::Uuid::new_v4().simple()); let listeners=[tcp_listener("0.0.0.0",1935)?,tcp_listener("127.0.0.1",0)?,tcp_listener("127.0.0.1",0)?]; let rtmp=listeners[0].local_addr().unwrap().port(); let http=listeners[1].local_addr().unwrap().port(); let api=listeners[2].local_addr().unwrap().port();
     let udp=UdpSocket::bind(("127.0.0.1",0)).map_err(|e|e.to_string())?.local_addr().unwrap().port();
     let cfg=dir.join("input.yml"); fs::write(&cfg,config(&key,rtmp,http,api,udp)).map_err(|e|e.to_string())?;
     let log=fs::File::create(dir.join("server.log")).map_err(|e|e.to_string())?;
     drop(listeners);
-    let mut child=Command::new(&exe).arg(&cfg).current_dir(&dir).stdin(Stdio::null()).stdout(log.try_clone().map_err(|e|e.to_string())?).stderr(log).creation_flags(0x08000000).spawn().map_err(|e|e.to_string())?;
-    let job=unsafe { (||->Result<usize,String>{
+    let mut command=Command::new(&exe); command.arg(&cfg).current_dir(&dir).stdin(Stdio::null()).stdout(log.try_clone().map_err(|e|e.to_string())?).stderr(log);
+    #[cfg(windows)] command.creation_flags(0x08000000);
+    #[cfg(unix)] {use std::os::unix::process::CommandExt; command.process_group(0);}
+    let mut child=command.spawn().map_err(|e|e.to_string())?;
+    #[cfg(windows)] let job=unsafe { (||->Result<usize,String>{
         let handle=CreateJobObjectW(None,None).map_err(|e|e.to_string())?;
         let mut info=JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default(); info.BasicLimitInformation.LimitFlags=JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
         if let Err(e)=SetInformationJobObject(handle,JobObjectExtendedLimitInformation,&info as *const _ as _,std::mem::size_of_val(&info) as u32) {let _=CloseHandle(handle);return Err(e.to_string());}
         if let Err(e)=AssignProcessToJobObject(handle,HANDLE(child.as_raw_handle())) {let _=CloseHandle(handle);return Err(e.to_string());}
         Ok(handle.0 as usize)
     })() };
-    let job=match job {Ok(job)=>job,Err(e)=>{let _=child.kill();let _=child.wait();return Err(e)}};
+    #[cfg(windows)] let job=match job {Ok(job)=>job,Err(e)=>{let _=child.kill();let _=child.wait();return Err(e)}};
     let mut ips:Vec<String>=local_ip_address::list_afinet_netifas().unwrap_or_default().into_iter().filter_map(|(_,ip)|match ip {std::net::IpAddr::V4(ip) if ip.is_private()=>Some(ip.to_string()),_=>None}).collect(); ips.sort_by_key(|ip|if ip.starts_with("192.168."){0}else{1}); ips.dedup();
-    if ips.is_empty(){let _=child.kill();let _=child.wait();unsafe{let _=CloseHandle(HANDLE(job as *mut _));}return Err("Connect this PC to Wi-Fi or Ethernet before starting RTMP input.".into());}
+    if ips.is_empty(){let _=child.kill();let _=child.wait();#[cfg(windows)] unsafe{let _=CloseHandle(HANDLE(job as *mut _));}return Err("Connect this PC to Wi-Fi or Ethernet before starting RTMP input.".into());}
     let urls=ips.iter().map(|ip|format!("rtmp://{ip}:{rtmp}/{key}")).collect();
-    Ok(Running{child,job,id,key,http,api,urls})
+    Ok(Running{child,#[cfg(windows)] job,id,key,http,api,urls})
 }
 fn client()->Result<reqwest::Client,String> {reqwest::Client::builder().no_proxy().timeout(Duration::from_secs(8)).redirect(reqwest::redirect::Policy::none()).build().map_err(|e|e.to_string())}
 #[tauri::command]

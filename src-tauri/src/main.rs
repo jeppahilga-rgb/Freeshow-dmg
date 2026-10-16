@@ -36,11 +36,11 @@ async fn exit_fullscreen(caller: tauri::Webview) -> Result<(), String> {
 }
 mod local_servers;
 mod phone_camera;
-#[cfg(windows)] mod rtmp_input;
-#[cfg(not(windows))] #[path="mac/rtmp_input.rs"] mod rtmp_input;
+mod rtmp_input;
 mod desktop_services;
 mod platform;
 mod spelling;
+mod midi_protocol;
 #[cfg(windows)] mod midi;
 #[cfg(not(windows))] #[path="mac/midi.rs"] mod midi;
 mod backend_runtime;
