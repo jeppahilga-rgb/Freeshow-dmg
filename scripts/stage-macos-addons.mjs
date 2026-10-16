@@ -6,9 +6,11 @@ const runtime=path.resolve('src-tauri/mac-runtime')
 const rootRequire=createRequire(path.resolve('package.json'))
 const copied=new Map(),native=[],verified=[]
 async function packageRoot(name,requireFrom){
- let entry;try{entry=requireFrom.resolve(name+'/package.json')}catch{entry=requireFrom.resolve(name)}
- let folder=path.dirname(entry)
- for(;;){try{const info=JSON.parse(await fs.readFile(path.join(folder,'package.json'),'utf8'));if(info.name===name)return {folder,info}}catch{}const parent=path.dirname(folder);if(parent===folder)throw Error('Cannot resolve '+name);folder=parent}
+ for(const base of requireFrom.resolve.paths(name)||[]){
+  const folder=path.join(base,name)
+  try{const info=JSON.parse(await fs.readFile(path.join(folder,'package.json'),'utf8'));if(info.name===name)return {folder,info}}catch(error){if(!['ENOENT','ENOTDIR'].includes(error.code))throw error}
+ }
+ throw Error('Cannot resolve runtime package '+name)
 }
 async function copy(name,requireFrom=rootRequire){
  const {folder,info}=await packageRoot(name,requireFrom)

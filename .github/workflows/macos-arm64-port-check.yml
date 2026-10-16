@@ -50,6 +50,10 @@ jobs:
           node scripts/stage-macos-mediamtx.mjs
           node scripts/stage-macos-core.mjs
           npx tauri icon public/icon.png --output src-tauri/icons
+      - name: Test embedded RTMP receiver with generated video
+        run: |
+          command -v ffmpeg >/dev/null || brew install ffmpeg
+          node scripts/macos-rtmp-smoke.mjs
       - name: Smoke test bundled ARM backend
         run: node scripts/macos-runtime-smoke.mjs
       - name: Inventory platform work
