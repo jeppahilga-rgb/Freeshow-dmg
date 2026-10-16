@@ -8,7 +8,7 @@ impl OutputEngines{
  pub fn stop_all(&self){self.sessions.lock().unwrap().clear();self.configs.lock().unwrap().clear();}
  pub fn output(&self,id:&str)->Option<Value>{self.configs.lock().unwrap().get(id).cloned()}
  pub fn is_capturing(&self,id:&str)->bool{self.sessions.lock().unwrap().contains_key(id)}
- pub fn set_rate(&self,id:&str,fps:u64){if let Some(session)=self.sessions.lock().unwrap().get(id){session.fps.store(fps.clamp(1,60),Ordering::Relaxed)}}
+ pub fn set_rate(&self,id:&str,fps:u64){if let Some(session)=self.sessions.lock().unwrap().get(id){session.fps.store(fps.clamp(1,60),Ordering::Relaxed);session._process.rate(fps)}}
  pub fn all_outputs(&self)->Vec<Value>{self.configs.lock().unwrap().values().cloned().collect()}
 }
 pub async fn configure(app:&tauri::AppHandle,output:&Value,active:bool)->Result<(),String>{

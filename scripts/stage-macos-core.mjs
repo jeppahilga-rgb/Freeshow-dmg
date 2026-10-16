@@ -36,5 +36,5 @@ for(const root of [...packageRoots].sort()){
 await fs.writeFile(path.join(destination,'THIRD-PARTY.json'),JSON.stringify(packages,null,2))
 await import('./stage-macos-addons.mjs')
 const files={};for(const name of await fs.readdir(destination,{recursive:true})){const file=path.join(destination,name);if(!(await fs.stat(file)).isFile())continue;const bytes=await fs.readFile(file);files[name]={bytes:bytes.length,sha256:crypto.createHash('sha256').update(bytes).digest('hex')}}
-await fs.writeFile(path.join(destination,'manifest.json'),JSON.stringify({platform:'darwin',arch:'arm64',node:process.versions.node,corePreview:true,files},null,2))
+await fs.writeFile(path.join(destination,'manifest.json'),JSON.stringify({platform:'darwin',arch:'arm64',node:process.versions.node,nativeIntegrationPorts:true,files},null,2))
 console.log('Staged Mac core runtime:',Object.keys(files).length,'files')

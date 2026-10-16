@@ -73,7 +73,7 @@ pub async fn desktop_service(app:tauri::AppHandle,caller:tauri::Webview,library:
     tauri::async_runtime::spawn_blocking(move||{
         match operation.as_str(){
             "SPELLCHECK"=>crate::spelling::check(&data),
-            "GET_DEVICE_NAME"=>Ok(json!(std::env::var("COMPUTERNAME").unwrap_or_default())),
+            "GET_DEVICE_NAME"=>Ok(json!(crate::platform::device_name()?)),
             "GET_PATHS"=>Ok(json!({"pictures":app.path().picture_dir().map_err(|e|e.to_string())?,"videos":app.path().video_dir().map_err(|e|e.to_string())?,"music":app.path().audio_dir().map_err(|e|e.to_string())?})),
             "GET_GRAPHICS_DEVICES"=>Ok(json!([])), // Original Windows backend also offers no persistable GPU selector.
             "CHECK_RAM_USAGE"=>crate::platform::memory(),

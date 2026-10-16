@@ -30,7 +30,7 @@ fn document_bytes(source: &Path) -> Result<Vec<u8>, String> {
                 std::thread::sleep(std::time::Duration::from_millis(100));
             }
         }
-        #[cfg(not(windows))] { return Err("Faithful PowerPoint conversion currently requires Windows and Microsoft PowerPoint".into()); }
+        #[cfg(target_os="macos")] convert_mac(source,&temporary)?;
         temporary.clone()
     } else { return Err("Select a PDF or PowerPoint file".into()); };
     let result = (|| {
@@ -211,4 +211,16 @@ mod tests {
             fs::remove_dir_all(folder).unwrap();
         }
     }
+}
+
+#[cfg(target_os="macos")]
+fn convert_mac(source:&Path,destination:&Path)->Result<(),String>{
+ use std::{path::PathBuf,process::{Command,Stdio},time::{Duration,Instant}};
+ let executable=["/Applications/LibreOffice.app/Contents/MacOS/soffice","/opt/homebrew/bin/soffice","/usr/local/bin/soffice"].into_iter().map(PathBuf::from).find(|path|path.is_file()).ok_or("For PDF-style PowerPoint import on macOS, install LibreOffice, or export the presentation to PDF first. Editable PPTX import is available without it.")?;
+ struct Temporary(PathBuf);impl Drop for Temporary{fn drop(&mut self){let _=fs::remove_dir_all(&self.0);}}
+ let folder=Temporary(std::env::temp_dir().join(format!("freeshow-office-{}",uuid::Uuid::new_v4())));fs::create_dir(&folder.0).map_err(|e|e.to_string())?;
+ let profile=folder.0.join("profile");let profile=tauri::Url::from_directory_path(&profile).map_err(|_|"Invalid office profile path")?;
+ let mut child=Command::new(executable).arg(format!("-env:UserInstallation={profile}")).args(["--headless","--nologo","--nodefault","--norestore","--convert-to","pdf:impress_pdf_Export","--outdir"]).arg(&folder.0).arg(source).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn().map_err(|e|e.to_string())?;
+ let start=Instant::now();loop{if let Some(status)=child.try_wait().map_err(|e|e.to_string())?{if !status.success(){return Err("LibreOffice could not convert this presentation. Export it to PDF in PowerPoint and import that file.".into())}break}if start.elapsed()>Duration::from_secs(180){let _=child.kill();let _=child.wait();return Err("PowerPoint conversion timed out".into())}std::thread::sleep(Duration::from_millis(100));}
+ let result=folder.0.join(source.file_stem().ok_or("Missing document name")?).with_extension("pdf");fs::copy(result,destination).map_err(|e|format!("Presentation PDF was not created: {e}"))?;Ok(())
 }

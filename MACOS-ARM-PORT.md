@@ -1,33 +1,35 @@
-# FreeShow+ for Apple Silicon — port preparation
+# FreeShow+ for Apple Silicon
 
-Target repository: https://github.com/jeppahilga-rgb/Freeshow-dmg
-Target architecture: aarch64-apple-darwin, including M3 Macs with 16 GB RAM.
+Target: Apple Silicon Macs, including the church M3 with 16 GB RAM.
+Repository: https://github.com/jeppahilga-rgb/Freeshow-dmg
 
-Status: Mac core preview under development. Source was uploaded to the repository on 16 October 2026 and the first Apple Silicon cloud diagnostic compiled the JavaScript and identified Windows-only Rust implementations. A DMG is not verified until the preview workflow completes its build, architecture, signature and disk-image checks. It is ad-hoc signed, not Developer ID notarized.
+The first core DMG was verified on 16 October 2026. The expanded native preview is now under cloud verification. A successful build proves compilation and the listed automated checks; it does not prove camera permissions, real-time performance, external displays or physical hardware operation.
 
-The first preview targets editing, local show/library storage, Scripture, fonts, ordinary media and Window outputs. Native screen/window capture, virtual camera, capture-based NDI/OMT/Blackmagic/RTMP/WHIP outputs, native MIDI, RTMP camera receiver, shared website frame capture, native PDF printing and secure external-account storage are explicitly unavailable. These are not reported as working ports. Camera/file playback and physical output displays still require church-Mac testing.
+## Native ports implemented
 
-## Prepared locally
+- Editing, local libraries, Scripture/output selection, bundled fonts, ordinary media, phone-camera WebRTC and Window outputs retain the shared implementation.
+- ScreenCaptureKit captures windows and displays at physical pixel resolution. Live frames keep full source resolution; only source-picker thumbnails are reduced. Streams close when their last consumer closes and their helper exits if the editor terminates. Network output capture changes the ScreenCaptureKit frame interval when its consumer frame rate changes.
+- Shared website sources use WKWebView snapshots. Back/forward state uses WebKit's native navigation history. Website controls stay separate from the audience output.
+- CoreMIDI input/output supports the same notes, control changes, channels and listener IDs as Windows. A virtual MIDI loopback test exercises native delivery without a physical keyboard.
+- The embedded, checksum-verified MediaMTX 1.21.2 ARM64 receiver provides short RTMP camera addresses ending in /cam. No separate MediaMTX installation is required.
+- NDI, OMT, Blackmagic, timecode, Opus audio, offline speech and presentation-control modules are built or selected for ARM64, copied with dependencies/notices, checked for unresolved library paths and imported from the staged runtime.
+- NDI/OMT/Blackmagic/RTMP/WHIP output transport takes BGRA frames from ScreenCaptureKit into the shared backend. Actual devices and receiving applications still need testing.
+- PDF export uses WebKit's macOS print operation with pagination and a PDF save destination, without showing a printer dialog.
+- Account credentials use authenticated AES-GCM encryption with a random key stored in macOS Keychain. There is no plaintext fallback. Windows DPAPI credentials cannot be transferred: reconnect accounts on the Mac. The cloud check creates and deletes an isolated Keychain fixture.
+- Spelling uses NSSpellChecker, including supported languages, suggestions and adding a word.
+- Escape/double-click output recovery remains available. Command+Shift+F12 closes all outputs globally (Fn may also be needed on keyboards configured for media keys).
+- Editable PPTX import requires no Office installation. PDF-style PowerPoint conversion can use an installed LibreOffice on macOS; exporting to PDF in PowerPoint is also supported. LibreOffice's rendering can differ from Microsoft Office, especially if fonts are missing.
 
-- Manual Mac ARM workflow with frontend tests, native compile/tests, app/DMG packaging, architecture/signature/image checks and a downloadable preview artifact only when all steps succeed. It publishes no release automatically.
-- windows-capture is now a Windows-target dependency rather than an unconditional dependency.
-- Backend resource lookup handles the Mac app Resources directory and selects `node` instead of `node.exe`. Unix backend startup uses a separate process group with cleanup; Windows retains its job object.
-- Desktop tool lookup includes Homebrew locations on macOS. File/URL opening uses the platform opener, and memory reporting parses the system page size instead of assuming the Windows layout. Windows shell fullscreen policy is conditionally compiled.
-- scripts/audit-macos-readiness.mjs inventories the remaining native platform work. This is an inventory, not proof of compilation.
-- `scripts/export-macos-source.mjs` prepares a source ZIP with per-file hashes and checks for common credential patterns. It excludes user libraries, generated binaries and build output. This does not replace a complete secret review before publishing.
+## Requirements and remaining limitations
 
-## Work needed before a DMG is usable
+- Allow camera, microphone, local network and Screen Recording access when using those features. macOS may require reopening FreeShow+ after Screen Recording permission changes.
+- Blackmagic hardware requires the manufacturer's Desktop Video driver. Native presentation control requires PowerPoint or Keynote and macOS Automation permission. FFmpeg can be installed from FreeShow settings for encoding features.
+- A standalone FreeShow virtual camera is **not included**. macOS requires a signed camera extension, provisioning and an Apple Developer identity; none have been supplied. The app reports this explicitly instead of offering a start button that cannot work. NDI/OMT or an OBS source remain possible output paths once verified on the target Mac.
+- The DMG uses ad-hoc signing. Developer ID signing and Apple notarization require the owner's Apple credentials, kept only in CI secrets. No signing secrets belong in source control.
+- ScreenCaptureKit requires a real macOS login session and Screen Recording consent. Cloud headless checks cannot verify protected video, permission dialogs, external cameras, audio-device behavior, projector placement or latency on the church network.
 
-1. Separate Windows implementations and add macOS implementations or clearly unavailable feature paths for capture, shared website rendering, virtual camera, MIDI, output engines, PDF export and spelling.
-2. Replace Windows process job ownership, executable lookup and .exe paths in the Node/backend and MediaMTX runtimes. Stage ARM64 Node, required native modules, notices and the darwin-arm64 MediaMTX binary inside the app resources.
-3. Add macOS library locations, Keychain-backed secrets, camera/microphone permissions and proper output-window lifecycle behavior. Preserve all editor, Scripture, font and import changes from this fork.
-4. Compile on the cloud runner and fix actual macOS compiler errors. Run core startup/editor/output checks there before enabling app/DMG packaging.
-5. Package the working app as a DMG, optionally with Developer ID signing and notarization using GitHub repository secrets. Signing credentials must never be committed.
-6. Test installation, camera/microphone permissions, output displays and media features on the church Mac. A successful cloud build does not prove hardware playback or low latency.
+## Build and verification
 
-GitHub's authenticated connection is needed to publish the source and dispatch/inspect cloud runs. Do not share passwords or tokens in chat. Publishing should use a clean source snapshot, excluding user libraries, credentials, generated binaries and local build output; preserve GPL attribution and bundled dependency notices.
+The manual macos-15 ARM workflow builds the frontend/backend, native modules, Rust application, app bundle and DMG. It verifies ARM architecture, bundled runtime startup and imports, native regression tests, code signatures and disk-image integrity. It publishes an expiring Actions artifact, not a public release. Consult the exact run and checksum accompanying each delivered DMG.
 
-References:
-- https://docs.github.com/en/actions/reference/runners/github-hosted-runners
-- https://v2.tauri.app/distribute/pipelines/github/
-- https://v2.tauri.app/distribute/macos-application-bundle/
+Sources and licenses from the original GPL FreeShow project are preserved. Optional runtime packages retain their upstream notices. No production library or account credentials are used by the automated tests.

@@ -1,7 +1,8 @@
-use std::{collections::{HashMap,HashSet},io::Read,path::PathBuf,process::{Child,Command,Stdio},sync::{Arc,Mutex},time::Duration};
+use std::{collections::{HashMap,HashSet},io::{Read,Write},path::PathBuf,process::{Child,ChildStdin,Command,Stdio},sync::{Arc,Mutex},time::Duration};
 use tauri::{Window,State,Manager,ipc::Response};
 #[derive(Default)]struct Latest{jpeg:Vec<u8>,closed:bool}
-pub struct Process{child:Child}
+pub struct Process{child:Child,input:Mutex<Option<ChildStdin>>}
+impl Process{pub fn rate(&self,fps:u64){if let Some(input)=self.input.lock().unwrap().as_mut(){let _=writeln!(input,"{}",fps.clamp(1,60));}}}
 impl Drop for Process{fn drop(&mut self){let _=self.child.kill();let _=self.child.wait();}}
 pub fn helper()->Result<PathBuf,String>{
  let exe=std::env::current_exe().map_err(|e|e.to_string())?;
@@ -15,10 +16,10 @@ fn source(id:&str)->Result<(),String>{
 }
 pub fn stream(id:&str,raw:bool,mut frame:impl FnMut(Vec<u8>)+Send+'static)->Result<Process,String>{
  source(id)?;
- let mut child=Command::new(helper()?).args([if raw{"raw"}else{"jpeg"},id]).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().map_err(|e|e.to_string())?;
+ let mut child=Command::new(helper()?).args([if raw{"raw"}else{"jpeg"},id]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().map_err(|e|e.to_string())?;
  let mut stdout=child.stdout.take().ok_or("Capture pipe unavailable")?;
  std::thread::spawn(move||{loop{let mut size=[0;4];if stdout.read_exact(&mut size).is_err(){break}let size=u32::from_le_bytes(size) as usize;if size==0||size>8192*8192*4+8{break}let mut bytes=vec![0;size];if stdout.read_exact(&mut bytes).is_err(){break}frame(bytes)}frame(Vec::new());});
- Ok(Process{child})
+ let input=Mutex::new(child.stdin.take());Ok(Process{child,input})
 }
 struct Session{latest:Arc<Mutex<Latest>>,_process:Process,consumers:HashSet<String>}
 #[derive(Default,Clone)]pub struct NativeCapture(Arc<Mutex<HashMap<String,Session>>>);

@@ -4,7 +4,7 @@ import {createRequire} from 'node:module'
 import {execFileSync} from 'node:child_process'
 const runtime=path.resolve('src-tauri/mac-runtime')
 const rootRequire=createRequire(path.resolve('package.json'))
-const copied=new Map(),native=[]
+const copied=new Map(),native=[],verified=[]
 async function packageRoot(name,requireFrom){
  let entry;try{entry=requireFrom.resolve(name+'/package.json')}catch{entry=requireFrom.resolve(name)}
  let folder=path.dirname(entry)
@@ -12,9 +12,11 @@ async function packageRoot(name,requireFrom){
 }
 async function copy(name,requireFrom=rootRequire){
  const {folder,info}=await packageRoot(name,requireFrom)
- if(copied.has(name)){if(copied.get(name)!==info.version)throw Error('Conflicting runtime dependency '+name);return}
- copied.set(name,info.version)
- const destination=path.join(runtime,'node_modules',name)
+ const location=path.relative(path.resolve('node_modules'),folder)
+ if(location.startsWith('..')||path.isAbsolute(location))throw Error('Dependency resolves outside node_modules: '+name)
+ if(copied.has(location))return
+ copied.set(location,{name,version:info.version})
+ const destination=path.join(runtime,'node_modules',location)
  await fs.cp(folder,destination,{recursive:true,filter:input=>{
   const relative=path.relative(folder,input).replaceAll('\\','/');const pieces=relative.split('/')
   if(pieces.some(part=>['node_modules','.git','test','tests','scratch','examples','obj','obj.target'].includes(part)))return false
@@ -35,6 +37,7 @@ for(let index=0;index<native.length;index++){
   // Jazz packages include legacy Intel binaries; its arm64 loader selects macosa64.
   if(binary.includes('/jazz-midi/')&&!binary.includes('/macosa64/')){await fs.rm(binary);continue}throw Error('Not ARM64: '+binary)
  }
+ verified.push(binary)
  const dependencies=execFileSync('/usr/bin/otool',['-L',binary],{encoding:'utf8'}).split('\n').slice(1).map(line=>line.trim().split(' (')[0]).filter(Boolean)
  for(const dependency of dependencies){
   if(dependency.startsWith('/System/')||dependency.startsWith('/usr/lib/'))continue
@@ -53,7 +56,7 @@ for(let index=0;index<native.length;index++){
 // Slideshow resolves its AppleScript connectors from the packaged resources directory.
 await fs.mkdir(path.join(runtime,'slideshow'),{recursive:true})
 for(const file of await fs.readdir('node_modules/slideshow'))if(file.startsWith('connector-mac-'))await fs.copyFile(path.join('node_modules/slideshow',file),path.join(runtime,'slideshow',file))
-await fs.writeFile(path.join(runtime,'NATIVE-MODULES.json'),JSON.stringify({platform:'darwin',arch:'arm64',packages:Object.fromEntries(copied),binaries:native.map(file=>path.relative(runtime,file))},null,2))
+await fs.writeFile(path.join(runtime,'NATIVE-MODULES.json'),JSON.stringify({platform:'darwin',arch:'arm64',packages:Object.fromEntries(copied),binaries:verified.map(file=>path.relative(runtime,file))},null,2))
 console.log('Staged Mac ARM native packages:',copied.size)
 
 execFileSync(path.join(runtime,'node'),['--input-type=module','-e',`for(const name of ['grandiose','openmediatransport','macadam','libltc-wrapper','@discordjs/opus','jazz-midi','sherpa-onnx-node','slideshow']){await import(name);console.log('PASS staged runtime import:',name)}`],{cwd:runtime,stdio:'inherit'})

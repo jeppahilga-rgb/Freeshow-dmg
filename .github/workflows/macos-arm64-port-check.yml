@@ -1,4 +1,4 @@
-name: Mac ARM core preview build
+name: Mac ARM preview build
 
 # Manual preview build. No automatic release publication.
 on:
@@ -77,7 +77,7 @@ jobs:
       - name: Upload preview installer
         uses: actions/upload-artifact@v4
         with:
-          name: FreeShow-Plus-Mac-ARM-Core-Preview
+          name: FreeShow-Plus-Mac-ARM-Preview
           path: |
             src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
             mac-dmg-sha256.txt

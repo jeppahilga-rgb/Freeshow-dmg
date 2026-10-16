@@ -133,6 +133,14 @@ final class Capture: NSObject, SCStreamOutput, SCStreamDelegate {
             let stream=SCStream(filter:filter,configuration:config,delegate:capture)
             try stream.addStreamOutput(capture,type:.screen,sampleHandlerQueue:DispatchQueue(label:"org.freeshow.capture"))
             try await stream.startCapture()
+            Task { @MainActor in
+                do { for try await line in FileHandle.standardInput.bytes.lines {
+                    if let fps=Int32(line),fps>=1,fps<=60 {
+                        config.minimumFrameInterval=CMTime(value:1,timescale:fps)
+                        try await stream.updateConfiguration(config)
+                    }
+                }} catch {}
+            }
             let parent=getppid()
             while getppid()==parent { try await Task.sleep(nanoseconds:1_000_000_000) }
             try await stream.stopCapture()
