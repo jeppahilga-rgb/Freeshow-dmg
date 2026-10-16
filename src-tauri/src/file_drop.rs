@@ -27,10 +27,11 @@ pub struct DropRequest {
 fn target(root: &Path, relative: &str) -> Result<PathBuf, String> {
     let drive = relative.as_bytes().get(0).is_some_and(u8::is_ascii_alphabetic)
         && relative.as_bytes().get(1) == Some(&b':');
-    if drive || relative.contains('\\') {
-        return Err("Dropped file path must be a relative forward-slash path".into());
+    if drive {
+        return Err("Dropped file path must not include a drive prefix".into());
     }
-    let relative = Path::new(relative);
+    let normalized = relative.replace('\\', "/");
+    let relative = Path::new(&normalized);
     if relative.as_os_str().is_empty()
         || relative
             .components()
@@ -132,6 +133,11 @@ mod tests {
         );
         assert!(append(&mut session, "../escape", 0, b"bad").is_err());
         assert!(append(&mut session, "C:/escape", 0, b"bad").is_err());
+        assert!(append(&mut session, "C:escape", 0, b"bad").is_err());
+        assert!(append(&mut session, "..\\escape", 0, b"bad").is_err());
+        assert!(append(&mut session, "\\\\server\\share", 0, b"bad").is_err());
+        append(&mut session, "Nested\\Windows name.txt", 0, b"normal").unwrap();
+        assert_eq!(fs::read(root.join("Nested/Windows name.txt")).unwrap(), b"normal");
         assert!(append(&mut session, "oversize", 0, &vec![0; 256 * 1024 + 1]).is_err());
         fs::remove_dir_all(root).unwrap();
     }

@@ -13,6 +13,22 @@ for(const [source,name] of [['LICENSE','LICENSE-FreeShow.txt'],['node_modules/sv
 const nodeLicense=await fetch(`https://raw.githubusercontent.com/nodejs/node/v${process.versions.node}/LICENSE`)
 if(!nodeLicense.ok)throw Error('Node runtime license could not be downloaded')
 await fs.writeFile(path.join(destination,'LICENSE-Node.txt'),await nodeLicense.text())
+// Keep notices for JavaScript packages included in the bundled backend.
+const metadata=JSON.parse(await fs.readFile('src-tauri/backend-runtime/build/metafile.json','utf8'))
+const packageRoots=new Set(Object.keys(metadata.inputs).map(name=>name.replaceAll('\\','/').match(/^(.*node_modules\/(?:@[^/]+\/)?[^/]+)(?:\/|$)/)?.[1]).filter(Boolean))
+const notices=path.join(destination,'notices');await fs.mkdir(notices,{recursive:true})
+const packages=[]
+for(const root of [...packageRoots].sort()){
+ const info=JSON.parse(await fs.readFile(path.join(root,'package.json'),'utf8'))
+ const prefix=(info.name+'-'+info.version).replace(/[^a-zA-Z0-9_.-]/g,'_')+'-'+crypto.createHash('sha256').update(root).digest('hex').slice(0,8)
+ const licenses=[]
+ for(const entry of await fs.readdir(root,{withFileTypes:true})){
+  if(!entry.isFile()||!/^(licen[sc]e|copying|notice)/i.test(entry.name))continue
+  const name=prefix+'-'+entry.name;await fs.copyFile(path.join(root,entry.name),path.join(notices,name));licenses.push('notices/'+name)
+ }
+ packages.push({name:info.name,version:info.version,license:info.license,notices:licenses})
+}
+await fs.writeFile(path.join(destination,'THIRD-PARTY.json'),JSON.stringify(packages,null,2))
 const files={};for(const name of await fs.readdir(destination,{recursive:true})){const file=path.join(destination,name);if(!(await fs.stat(file)).isFile())continue;const bytes=await fs.readFile(file);files[name]={bytes:bytes.length,sha256:crypto.createHash('sha256').update(bytes).digest('hex')}}
 await fs.writeFile(path.join(destination,'manifest.json'),JSON.stringify({platform:'darwin',arch:'arm64',node:process.versions.node,corePreview:true,files},null,2))
 console.log('Staged Mac core runtime:',Object.keys(files).length,'files')
