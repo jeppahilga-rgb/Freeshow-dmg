@@ -25,12 +25,15 @@ struct Session{latest:Arc<Mutex<Latest>>,_process:Process,consumers:HashSet<Stri
 #[derive(Default,Clone)]pub struct NativeCapture(Arc<Mutex<HashMap<String,Session>>>);
 impl NativeCapture{
  fn start(&self,id:&str,owner:String)->Result<(),String>{
+  self.start_with(id,owner,|target|stream(id,false,move|bytes|{if let Ok(mut state)=target.lock(){if bytes.is_empty(){state.closed=true}else{state.jpeg=bytes}}}))
+ }
+ fn start_with(&self,id:&str,owner:String,spawn:impl FnOnce(Arc<Mutex<Latest>>)->Result<Process,String>)->Result<(),String>{
   let mut sessions=self.0.lock().map_err(|_|"Capture state unavailable")?;
   if let Some(session)=sessions.get_mut(id){
    if !session.latest.lock().map_err(|_|"Capture frame unavailable")?.closed {session.consumers.insert(owner);return Ok(())}
   }
-  let latest=Arc::new(Mutex::new(Latest::default()));let target=latest.clone();
-  let process=stream(id,false,move|bytes|{if let Ok(mut state)=target.lock(){if bytes.is_empty(){state.closed=true}else{state.jpeg=bytes}}})?;
+  let latest=Arc::new(Mutex::new(Latest::default()));
+  let process=spawn(latest.clone())?;
   let mut consumers=sessions.remove(id).map(|session|session.consumers.clone()).unwrap_or_default();
   consumers.insert(owner);
   sessions.insert(id.into(),Session{latest,_process:process,consumers});Ok(())
@@ -79,3 +82,29 @@ pub fn window_jpeg(handle:usize)->Result<Vec<u8>,String>{
 #[tauri::command]pub async fn native_capture_start(id:String,consumer:String,window:Window,capture:State<'_,NativeCapture>)->Result<(),String>{capture.start(&id,format!("{}:{consumer}",window.label()))}
 #[tauri::command]pub fn native_capture_frame(id:String,consumer:String,window:Window,capture:State<NativeCapture>)->Result<Response,String>{capture.frame(&id,&format!("{}:{consumer}",window.label())).map(Response::new)}
 #[tauri::command]pub async fn native_capture_stop(id:String,consumer:String,window:Window,capture:State<'_,NativeCapture>)->Result<(),String>{capture.release(Some(&id),&format!("{}:{consumer}",window.label()),false);Ok(())}
+
+#[cfg(test)] mod tests {
+ use super::*;
+ fn fixture(_:Arc<Mutex<Latest>>)->Result<Process,String>{
+  let mut child=Command::new("/bin/cat").stdin(Stdio::piped()).stdout(Stdio::null()).spawn().map_err(|e|e.to_string())?;
+  let input=Mutex::new(child.stdin.take());Ok(Process{child,input})
+ }
+ #[test] fn closed_capture_restarts_preserving_subscribers_and_releases_last_consumer(){
+  let capture=NativeCapture::default();let id="native-window-42";
+  capture.start_with(id,"main:preview".into(),fixture).unwrap();
+  capture.start_with(id,"output-1:live".into(),|_|panic!("Live capture must be shared")).unwrap();
+  {let sessions=capture.0.lock().unwrap();sessions[id].latest.lock().unwrap().closed=true;}
+  capture.start_with(id,"main:retry".into(),fixture).unwrap();
+  for owner in ["main:preview","output-1:live","main:retry"]{assert!(capture.frame(id,owner).is_ok());}
+  capture.close_window("main");
+  assert!(capture.frame(id,"main:retry").is_err());assert!(capture.frame(id,"output-1:live").is_ok());
+  capture.close_window("output-1");assert!(capture.0.lock().unwrap().is_empty());
+ }
+ #[test] fn failed_restart_keeps_existing_subscriptions(){
+  let capture=NativeCapture::default();let id="native-screen-1";
+  capture.start_with(id,"main:preview".into(),fixture).unwrap();
+  {let sessions=capture.0.lock().unwrap();sessions[id].latest.lock().unwrap().closed=true;}
+  assert!(capture.start_with(id,"main:retry".into(),|_|Err("fixture failure".into())).is_err());
+  let sessions=capture.0.lock().unwrap();assert_eq!(sessions[id].consumers,HashSet::from(["main:preview".into()]));
+ }
+}

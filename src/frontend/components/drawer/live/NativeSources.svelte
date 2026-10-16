@@ -3,6 +3,7 @@
     import { nativeSources, nativeThumbnail, openCaptureBrowser, type CaptureSource } from "../../../tauri/nativeCapture"
     import Icon from "../../helpers/Icon.svelte"
     import MaterialButton from "../../inputs/MaterialButton.svelte"
+    import { os } from "../../../stores"
     export let kind: "screen" | "window"
     export let searchValue = ""
     let sources: CaptureSource[] = []
@@ -17,7 +18,7 @@
         openingBrowser = true; browserNotice = ""
         try {
             await openCaptureBrowser(browserUrl)
-            browserNotice = "Play the video in the new browser, then Refresh and select its window below. Keep it restored."
+            browserNotice = $os.platform === "darwin" ? "Play the video in your browser, then Refresh and select its window below. Keep it restored." : "Play the video in the new browser, then Refresh and select its window below. Keep it restored."
         } catch (err) { error = String(err) }
         finally { openingBrowser = false }
     }
@@ -58,12 +59,12 @@
     {#if error}<p class="error">{error}</p>{/if}
     {#if kind === "window"}
         <div class="capture-browser">
-            <p>Video stops when covered? Open a capture browser that keeps rendering behind FreeShow.</p>
+            <p>{$os.platform === "darwin" ? "Open a website in your default browser, then select its window for capture." : "Video stops when covered? Open a capture browser that keeps rendering behind FreeShow."}</p>
             <div class="browser-row">
                 <input type="url" aria-label="Capture website address" bind:value={browserUrl} placeholder="https://www.youtube.com/" />
                 <MaterialButton disabled={openingBrowser || !browserUrl.trim()} on:click={openBrowser}>{openingBrowser ? "Opening…" : "Open capture browser"}</MaterialButton>
             </div>
-            <small>Uses a separate browser profile. You may need to sign in again. Close the browser when finished.</small>
+            <small>{$os.platform === "darwin" ? "Uses your existing browser profile. Screen capture is video only; protected content or a minimized window may be unavailable." : "Uses a separate browser profile. You may need to sign in again. Close the browser when finished."}</small>
             {#if browserNotice}<p role="status">{browserNotice}</p>{/if}
         </div>
     {/if}

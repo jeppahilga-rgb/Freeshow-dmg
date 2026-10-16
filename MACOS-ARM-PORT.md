@@ -3,7 +3,7 @@
 Target: Apple Silicon Macs, including the church M3 with 16 GB RAM.
 Repository: https://github.com/jeppahilga-rgb/Freeshow-dmg
 
-The first core DMG was verified on 16 October 2026. The expanded native preview is now under cloud verification. A successful build proves compilation and the listed automated checks; it does not prove camera permissions, real-time performance, external displays or physical hardware operation.
+The expanded native DMG passed Apple Silicon cloud verification on 16 October 2026 (build 38906835115, packaging 38909497845). The capture corrections from the same day's re-audit require their own successful build. A successful build proves compilation and the listed automated checks; it does not prove camera permissions, real-time performance, external displays or physical hardware operation.
 
 ## Native ports implemented
 
@@ -27,9 +27,10 @@ The first core DMG was verified on 16 October 2026. The expanded native preview 
 - A standalone FreeShow virtual camera is **not included**. macOS requires a signed camera extension, provisioning and an Apple Developer identity; none have been supplied. The app reports this explicitly instead of offering a start button that cannot work. NDI/OMT or an OBS source remain possible output paths once verified on the target Mac.
 - The DMG uses ad-hoc signing. Developer ID signing and Apple notarization require the owner's Apple credentials, kept only in CI secrets. No signing secrets belong in source control.
 - ScreenCaptureKit requires a real macOS login session and Screen Recording consent. Cloud headless checks cannot verify protected video, permission dialogs, external cameras, audio-device behavior, projector placement or latency on the church network.
+- Window/display capture is video only; it does not capture another application's audio. WKWebView website snapshots and script-based media muting need testing with the actual sites, especially cross-origin embedded players. Native-module imports alone do not verify NDI or other network receivers.
 
 ## Build and verification
 
-The manual macos-15 ARM workflow builds the frontend/backend, native modules, Rust application, app bundle and DMG. It verifies ARM architecture, bundled runtime startup and imports, native regression tests, code signatures and disk-image integrity. It publishes an expiring Actions artifact, not a public release. Consult the exact run and checksum accompanying each delivered DMG.
+The manual macos-15 ARM workflow builds the frontend/backend, native modules, Rust application, app bundle and DMG. It verifies ARM architecture, bundled runtime startup and imports, native regression tests, code signatures and disk-image integrity. The final app bundle is checked again for required entitlements, runtime startup and all eight native-module imports. The workflow publishes an expiring Actions artifact; selected verified installers are separately published to this fork's GitHub Releases. Consult the exact run and checksum accompanying each delivered DMG.
 
 Sources and licenses from the original GPL FreeShow project are preserved. Optional runtime packages retain their upstream notices. No production library or account credentials are used by the automated tests.
