@@ -26,10 +26,14 @@ struct Session{latest:Arc<Mutex<Latest>>,_process:Process,consumers:HashSet<Stri
 impl NativeCapture{
  fn start(&self,id:&str,owner:String)->Result<(),String>{
   let mut sessions=self.0.lock().map_err(|_|"Capture state unavailable")?;
-  if let Some(session)=sessions.get_mut(id){session.consumers.insert(owner);return Ok(())}
+  if let Some(session)=sessions.get_mut(id){
+   if !session.latest.lock().map_err(|_|"Capture frame unavailable")?.closed {session.consumers.insert(owner);return Ok(())}
+  }
   let latest=Arc::new(Mutex::new(Latest::default()));let target=latest.clone();
   let process=stream(id,false,move|bytes|{if let Ok(mut state)=target.lock(){if bytes.is_empty(){state.closed=true}else{state.jpeg=bytes}}})?;
-  sessions.insert(id.into(),Session{latest,_process:process,consumers:HashSet::from([owner])});Ok(())
+  let mut consumers=sessions.remove(id).map(|session|session.consumers.clone()).unwrap_or_default();
+  consumers.insert(owner);
+  sessions.insert(id.into(),Session{latest,_process:process,consumers});Ok(())
  }
  fn frame(&self,id:&str,owner:&str)->Result<Vec<u8>,String>{
   let sessions=self.0.lock().map_err(|_|"Capture state unavailable")?;

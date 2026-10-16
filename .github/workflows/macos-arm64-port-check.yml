@@ -84,6 +84,18 @@ jobs:
           lipo "$APP/Contents/MacOS/freeshow-tauri" -verify_arch arm64
           lipo "$APP/Contents/Resources/runtime/node" -verify_arch arm64
           codesign --verify --deep --strict "$APP"
+          codesign -d --entitlements - --xml "$APP" > applied-entitlements.plist
+          python3 - <<'PY'
+          import plistlib
+          values=plistlib.load(open('applied-entitlements.plist','rb'))
+          for key in ['com.apple.security.device.camera','com.apple.security.device.audio-input','com.apple.security.automation.apple-events']:
+              assert values[key] is True,key
+          PY
+          RUNTIME="$PWD/$APP/Contents/Resources/runtime"
+          "$RUNTIME/freeshow-native" selftest
+          FREESHOW_SMOKE_RUNTIME="$RUNTIME" node scripts/macos-runtime-smoke.mjs
+          (cd "$RUNTIME" && ./node --input-type=module -e "for(const name of ['grandiose','openmediatransport','macadam','libltc-wrapper','@discordjs/opus','jazz-midi','sherpa-onnx-node','slideshow']){await import(name);console.log('PASS final app module:',name)}")
+          codesign --verify --deep --strict "$APP"
           hdiutil verify src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
           shasum -a 256 src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg > mac-dmg-sha256.txt
       - name: Upload preview installer
@@ -93,6 +105,7 @@ jobs:
           path: |
             src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
             mac-dmg-sha256.txt
+            applied-entitlements.plist
             MACOS-ARM-PORT.md
           if-no-files-found: error
           retention-days: 14
