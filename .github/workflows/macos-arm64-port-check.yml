@@ -14,11 +14,12 @@ concurrency:
 jobs:
   port-check:
     runs-on: macos-15
-    timeout-minutes: 45
+    timeout-minutes: 60
     env:
       CARGO_BUILD_JOBS: 2
       CARGO_INCREMENTAL: 0
       FREESHOW_MAC_CORE: '1'
+      FREESHOW_MAC_NATIVE: '1'
       VITE_MAC_CORE: 'true'
     steps:
       - uses: actions/checkout@v4
@@ -34,6 +35,8 @@ jobs:
           rustup default stable
       - name: Install JavaScript dependencies without native install scripts
         run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Build ARM native media modules
+        run: node scripts/build-macos-addons.mjs
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri -> target

@@ -31,7 +31,7 @@ await fs.writeFile(path.join(directory,'store-metadata.ts'),'import {defaultSett
 const shimMap=new Map(['data/store','IPC/main','IPC/responsesMain','data/thumbnails','index','capture/CaptureHelper','output/OutputHelper'].map((name,i)=>[path.resolve('src/electron',name),path.join(directory,['store.ts','ipc.ts','services.ts','services.ts','index.ts','capture.ts','capture.ts'][i])]))
 shimMap.set(path.resolve('src/electron/capture/StreamReceiverHost'),path.join(directory,'media-transport.ts'))
 shimMap.set(path.resolve('src/electron/output/helpers/OutputValues'),path.join(directory,'output-values.ts'))
-const macOptional=['slideshow','@discordjs/opus','libltc-wrapper','jazz-midi','sherpa-onnx-node','grandiose','openmediatransport','macadam','osr-capture']
+const macOptional=process.env.FREESHOW_MAC_NATIVE==='1'?['osr-capture']:['slideshow','@discordjs/opus','libltc-wrapper','jazz-midi','sherpa-onnx-node','grandiose','openmediatransport','macadam','osr-capture']
 const plugin={name:'tauri-backend-host',setup(b){
  if(process.env.FREESHOW_MAC_CORE==='1'){
   b.onResolve({filter:/.*/},args=>macOptional.includes(args.path)?{path:args.path,namespace:'mac-core-unavailable'}:undefined)

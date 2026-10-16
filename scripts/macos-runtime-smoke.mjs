@@ -22,4 +22,4 @@ try{
  assert.equal(await request('GET_STORE_VALUE',{file:'config',key:'mac.coreSmoke'}),'passed')
  await assert.rejects(request('SET_STORE_VALUE',{file:'config',key:'__proto__.bad',value:1}),/Invalid/)
  console.log('PASS bundled ARM Node runtime: startup, provider inventory, installed fonts, isolated settings and invalid-key rejection')
-}finally{clearTimeout(startupTimer);child.kill();await new Promise(resolve=>{if(child.exitCode!==null)resolve();else child.once('exit',resolve)});await fs.rm(root,{recursive:true,force:true})}
+}finally{clearTimeout(startupTimer);child.kill();await new Promise(resolve=>{if(child.exitCode!==null||child.signalCode!==null)resolve();else child.once('exit',resolve)});await fs.rm(root,{recursive:true,force:true})}
