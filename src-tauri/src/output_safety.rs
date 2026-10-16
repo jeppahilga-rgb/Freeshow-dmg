@@ -150,6 +150,7 @@ mod tests {
         assert!(super::recovery_labels(&windows, None, false).is_empty());
     }
     #[test]
+    #[cfg(windows)]
     fn shell_property_is_applied_removed_and_restored_on_a_real_hidden_hwnd() {
         use windows::{core::w, Win32::UI::WindowsAndMessaging::{CreateWindowExW, DestroyWindow, GetPropW, HWND_MESSAGE, WINDOW_EX_STYLE, WINDOW_STYLE}};
         unsafe {

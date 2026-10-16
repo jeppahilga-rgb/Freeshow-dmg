@@ -804,7 +804,7 @@ fn main() {
                     fs::create_dir_all(root.join(folder))?;
                 }
             }
-            fs::create_dir_all(root.join("shows"))?;
+            fs::create_dir_all(root.join("Shows"))?;
             fs::create_dir_all(root.join("cache"))?;
             app.asset_protocol_scope().allow_directory(&root, true)?;
             let library=Library {
